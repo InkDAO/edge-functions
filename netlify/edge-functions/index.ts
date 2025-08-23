@@ -1,7 +1,17 @@
 import { Hono } from 'hono'
 import { PinataSDK } from 'pinata'
+import { cors } from 'hono/cors'
 
 const app = new Hono()
+
+// Add CORS middleware
+app.use('*', cors({
+  origin: ['http://localhost:8080', 'https://decentralizedx.tech'], // Add your allowed origins
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
+  allowMethods: ['GET'],
+  exposeHeaders: ['Content-Length', 'Content-Type', 'Authorization'],
+  credentials: true,
+}))
 
 app.get('/', (c) => {
   return c.text('Hello World')
