@@ -1,0 +1,8 @@
+[[edge_functions]]
+  function = "index"
+  path = "/*"
+
+[build.environment]
+  # Environment variables for Edge Functions
+  # Note: You need to set these in Netlify's dashboard or via CLI
+  # For local development, they should be in your .env file
