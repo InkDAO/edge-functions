@@ -2,6 +2,13 @@ import { Hono } from 'hono'
 import { PinataSDK } from 'pinata'
 import { cors } from 'hono/cors'
 
+// Declare Deno types for Netlify Edge Functions
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined
+  }
+}
+
 const app = new Hono()
 
 // Add CORS middleware
@@ -17,7 +24,27 @@ app.get('/', (c) => {
   return c.text('Hello World')
 })
 
-app.get('/presigned_url', async (c) => {
+app.post('/create/:group_name', async (c) => {
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+  
+  const group = await pinata.groups.public.create({
+    name: c.req.param('group_name'),
+  })
+
+  return c.json({ group }, { status: 200 })
+})
+
+app.get('/presigned_url/:group_id', async (c) => {
   // In Netlify Edge Functions, use Deno.env.get() to access environment variables
   const pinataJwt = Deno.env.get('PINATA_JWT')
   const gatewayUrl = Deno.env.get('GATEWAY_URL')
@@ -33,7 +60,8 @@ app.get('/presigned_url', async (c) => {
 
   try {
     const url = await pinata.upload.public.createSignedURL({
-      expires: 60 // Last for 60 seconds
+      expires: 60, // Last for 60 seconds
+      groupId: c.req.param('group_id')
     })
 
     return c.json({ url }, { status: 200 })
