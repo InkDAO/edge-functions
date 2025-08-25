@@ -36,12 +36,20 @@ app.post('/create/:group_name', async (c) => {
     pinataJwt: pinataJwt,
     pinataGateway: gatewayUrl
   })
-  
-  const group = await pinata.groups.public.create({
-    name: c.req.param('group_name'),
-  })
 
-  return c.json({ group }, { status: 200 })
+  const groupResponse = await pinata.groups.public
+    .list()
+    .name(c.req.param('group_name'))
+    .limit(1)
+
+  if (groupResponse.groups.length > 0) {
+    return c.json({ group: groupResponse.groups[0] }, { status: 200 })
+  } else {
+    const group = await pinata.groups.public.create({
+      name: c.req.param('group_name'),
+    })
+    return c.json({ group }, { status: 200 })
+  }
 })
 
 app.get('/presigned_url/:group_id', async (c) => {
@@ -69,6 +77,27 @@ app.get('/presigned_url/:group_id', async (c) => {
     console.error('Pinata error:', error)
     return c.json({ error: 'Failed to generate presigned URL' }, { status: 500 })
   }
+})
+
+app.get('/get/:group_name', async (c) => {
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+  
+  const groups = await pinata.groups.public
+    .list()
+    .name(c.req.param('group_name'))
+    .limit(10)
+
+  return c.json(groups, { status: 200 })
 })
 
 export default app.fetch
