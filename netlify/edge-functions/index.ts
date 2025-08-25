@@ -95,7 +95,7 @@ app.get('/get/:group_name', async (c) => {
   const groups = await pinata.groups.public
     .list()
     .name(c.req.param('group_name'))
-    .limit(10)
+    .limit(1)
 
   return c.json(groups, { status: 200 })
 })
