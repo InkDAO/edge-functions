@@ -13,7 +13,7 @@ const app = new Hono()
 
 // Add CORS middleware
 app.use('*', cors({
-  origin: ['http://localhost:8080', 'https://decentralizedx.tech'], // Add your allowed origins
+  origin: ['http://localhost:8080', 'https://decentralizedx.tech', 'https://dev.decentralizedx.tech'], // Add your allowed origins
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
   allowMethods: ['GET'],
   exposeHeaders: ['Content-Length', 'Content-Type', 'Authorization'],
@@ -95,7 +95,7 @@ app.get('/get/:group_name', async (c) => {
   const groups = await pinata.groups.public
     .list()
     .name(c.req.param('group_name'))
-    .limit(10)
+    .limit(1)
 
   return c.json(groups, { status: 200 })
 })
