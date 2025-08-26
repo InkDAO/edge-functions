@@ -79,7 +79,7 @@ app.get('/presigned_url/:group_id', async (c) => {
   }
 })
 
-app.get('/get/:group_name', async (c) => {
+app.get('/groupByName/:group_name', async (c) => {
   const pinataJwt = Deno.env.get('PINATA_JWT')
   const gatewayUrl = Deno.env.get('GATEWAY_URL')
   
@@ -98,6 +98,24 @@ app.get('/get/:group_name', async (c) => {
     .limit(1)
 
   return c.json(groups, { status: 200 })
+})
+
+app.get('/fileByCid/:cid', async (c) => {
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  const files = await pinata.files.public.list().cid(c.req.param('cid'))
+
+  return c.json(files, { status: 200 })
 })
 
 export default app.fetch
