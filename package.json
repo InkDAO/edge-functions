@@ -6,6 +6,7 @@
     "build": "netlify build"
   },
   "dependencies": {
+    "ethers": "^6.15.0",
     "hono": "^4.9.4",
     "pinata": "^2.5.0"
   },

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { PinataSDK } from 'pinata'
 import { cors } from 'hono/cors'
+import { verifyMessage } from 'ethers'
 
 // Declare Deno types for Netlify Edge Functions
 declare const Deno: {
@@ -13,9 +14,9 @@ const app = new Hono()
 
 // Add CORS middleware
 app.use('*', cors({
-  origin: ['http://localhost:8080', 'https://decentralizedx.tech', 'https://v2.decentralizedx.tech'], // Add your allowed origins
+  origin: ['http://localhost:8080', 'https://decentralizedx.tech', 'https://v2.decentralizedx.tech', 'https://v3.decentralizedx.tech'], // Add your allowed origins
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
-  allowMethods: ['GET'],
+  allowMethods: ['GET', 'POST'],
   exposeHeaders: ['Content-Length', 'Content-Type', 'Authorization'],
   credentials: true,
 }))
@@ -24,33 +25,58 @@ app.get('/', (c) => {
   return c.text('Hello World')
 })
 
-app.post('/create/:group_name', async (c) => {
-  const pinataJwt = Deno.env.get('PINATA_JWT')
-  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+export async function authenticateSignature(
+  salt: string,
+  signature: string,
+  address: string
+): Promise<boolean> {
+
+  // check if all fields are present
+  if (!salt || !address || !signature) {
+    return false
+  }
+
+  // max 10 seconds
+  if (Date.now() / 1000 - parseInt(salt) > 10) {
+    return false
+  }
   
-  if (!pinataJwt || !gatewayUrl) {
-    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  try {
+    const recoveredAddr = verifyMessage(salt, signature);
+    return recoveredAddr.toLowerCase() === address.toLowerCase()
+  } catch (err) {
+    console.error('Signature verification error:', err)
+    return false
   }
+}
 
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+// app.post('/create/:group_name', async (c) => {
+//   const pinataJwt = Deno.env.get('PINATA_JWT')
+//   const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+//   if (!pinataJwt || !gatewayUrl) {
+//     return c.json({ error: 'Missing environment variables' }, { status: 500 })
+//   }
 
-  const groupResponse = await pinata.groups.public
-    .list()
-    .name(c.req.param('group_name'))
-    .limit(1)
+//   const pinata = new PinataSDK({
+//     pinataJwt: pinataJwt,
+//     pinataGateway: gatewayUrl
+//   })
 
-  if (groupResponse.groups.length > 0) {
-    return c.json({ group: groupResponse.groups[0] }, { status: 200 })
-  } else {
-    const group = await pinata.groups.public.create({
-      name: c.req.param('group_name'),
-    })
-    return c.json({ group }, { status: 200 })
-  }
-})
+//   const groupResponse = await pinata.groups.public
+//     .list()
+//     .name(c.req.param('group_name'))
+//     .limit(1)
+
+//   if (groupResponse.groups.length > 0) {
+//     return c.json({ group: groupResponse.groups[0] }, { status: 200 })
+//   } else {
+//     const group = await pinata.groups.public.create({
+//       name: c.req.param('group_name'),
+//     })
+//     return c.json({ group }, { status: 200 })
+//   }
+// })
 
 app.get('/presigned_url/:group_id', async (c) => {
   // In Netlify Edge Functions, use Deno.env.get() to access environment variables
@@ -159,6 +185,106 @@ app.get('/filesByTags', async (c) => {
   } catch (error) {
     console.error('Error filtering files by multiple tags:', error)
     return c.json({ error: 'Failed to filter files by tags' }, { status: 500 })
+  }
+})
+
+app.post('/create/group', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+  
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  const groupName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
+  const group = await pinata.groups.private.create({
+    name: groupName,
+  })
+
+  const upload = await pinata.upload.private
+  .json({
+    content: "Initial Empty Json",
+    lang: "ts"
+  })
+  .group(group.id)
+  .name(groupName)
+  .keyvalues({
+    owner: address.toLowerCase()
+  })
+
+  return c.json({ upload }, { status: 200 })
+})
+
+app.post('/update/file', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+  const content = body.content
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  try {
+    const cid = c.req.query('cid')
+    const files = await pinata.files.private
+		.list()
+		.cid(cid as string)
+
+    if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
+      return c.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    await pinata.files.private.delete([
+      files.files[0].id
+    ])
+
+    const upload = await pinata.upload.private
+    .json({
+      content: content,
+      lang: "ts"
+    })
+    .group(files.files[0].group_id as string)
+    .name(files.files[0].name as string)
+    .keyvalues({
+      owner: address.toLowerCase()
+    })
+
+    return c.json({ upload }, { status: 200 })
+  } catch (error) {
+    console.error('File update error:', error)
+    return c.json({ error: 'Failed to update file' }, { status: 500 })
   }
 })
 
