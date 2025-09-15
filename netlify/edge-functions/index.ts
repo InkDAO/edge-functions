@@ -270,14 +270,14 @@ app.post('/update/file', async (c) => {
       files.files[0].id
     ])
 
-    const groupName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
+    const fileName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
     const upload = await pinata.upload.private
     .json({
       content: content,
       lang: "ts"
     })
     .group(files.files[0].group_id as string)
-    .name(groupName)
+    .name(fileName)
     .keyvalues({
       owner: address.toLowerCase()
     })
