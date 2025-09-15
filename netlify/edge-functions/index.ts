@@ -263,20 +263,21 @@ app.post('/update/file', async (c) => {
 		.cid(cid as string)
 
     if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-      return c.json({ error: 'File not found' }, { status: 404 })
+      return c.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     await pinata.files.private.delete([
       files.files[0].id
     ])
 
+    const groupName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
     const upload = await pinata.upload.private
     .json({
       content: content,
       lang: "ts"
     })
     .group(files.files[0].group_id as string)
-    .name(files.files[0].name as string)
+    .name(groupName)
     .keyvalues({
       owner: address.toLowerCase()
     })
