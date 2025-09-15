@@ -225,7 +225,8 @@ app.post('/create/group', async (c) => {
   .group(group.id)
   .name(groupName)
   .keyvalues({
-    owner: address.toLowerCase()
+    owner: address.toLowerCase(),
+    status: "pending",
   })
 
   return c.json({ upload }, { status: 200 })
@@ -268,12 +269,14 @@ app.post('/update/file', async (c) => {
         return c.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
+      if (files.files[0].keyvalues.status === "onchain") {
+        return c.json({ error: 'File already published on chain' }, { status: 400 })
+      }
+
       // same signature can't be used twice
       if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`) {
         return c.json({ error: 'File already exists' }, { status: 400 })
       }
-
-      // TODO: Read from contract to check if the blog is on chain.
 
       try {
         await pinata.files.private.delete([
@@ -295,7 +298,8 @@ app.post('/update/file', async (c) => {
       .group(files.files[0].group_id as string)
       .name(fileName)
       .keyvalues({
-        owner: address.toLowerCase()
+        owner: address.toLowerCase(),
+        status: "pending",
       })
 
       return c.json({ upload }, { status: 200 })
