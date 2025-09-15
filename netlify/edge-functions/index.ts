@@ -262,27 +262,47 @@ app.post('/update/file', async (c) => {
 		.list()
 		.cid(cid as string)
 
-    if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-      return c.json({ error: 'Unauthorized' }, { status: 401 })
+    if (files.files.length === 1) {
+      // No other user can update the file
+      if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
+        return c.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      // same signature can't be used twice
+      if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`) {
+        return c.json({ error: 'File already exists' }, { status: 400 })
+      }
+
+      // TODO: Read from contract to check if the blog is on chain.
+
+      try {
+        await pinata.files.private.delete([
+          files.files[0].id
+        ])
+      } catch (error) {
+        console.error('File delete error:', error)
+        return c.json({ error: 'Failed to delete file' }, { status: 500 })
+      }
     }
 
-    await pinata.files.private.delete([
-      files.files[0].id
-    ])
+    try {
+      const fileName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
+      const upload = await pinata.upload.private
+      .json({
+        content: content,
+        lang: "ts"
+      })
+      .group(files.files[0].group_id as string)
+      .name(fileName)
+      .keyvalues({
+        owner: address.toLowerCase()
+      })
 
-    const fileName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
-    const upload = await pinata.upload.private
-    .json({
-      content: content,
-      lang: "ts"
-    })
-    .group(files.files[0].group_id as string)
-    .name(fileName)
-    .keyvalues({
-      owner: address.toLowerCase()
-    })
-
-    return c.json({ upload }, { status: 200 })
+      return c.json({ upload }, { status: 200 })
+    } catch (error) {
+      console.error('File upload error:', error)
+      return c.json({ error: 'Failed to upload file' }, { status: 500 })
+    }
   } catch (error) {
     console.error('File update error:', error)
     return c.json({ error: 'Failed to update file' }, { status: 500 })
