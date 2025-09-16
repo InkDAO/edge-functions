@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { PinataSDK } from 'pinata'
 import { cors } from 'hono/cors'
 import { verifyMessage } from 'ethers'
+import { sign, verify } from 'hono/jwt'
 
 // Declare Deno types for Netlify Edge Functions
 declare const Deno: {
@@ -11,6 +12,11 @@ declare const Deno: {
 }
 
 const app = new Hono()
+
+// JWT secret - in production, this should be a secure secret from environment variables
+const getJwtSecret = () => {
+  return Deno.env.get('SECRET_KEY') as string
+}
 
 // Add CORS middleware
 app.use('*', cors({
@@ -48,6 +54,28 @@ export async function authenticateSignature(
     console.error('Signature verification error:', err)
     return false
   }
+}
+
+export async function verifyJWT(token: string): Promise<{ address: string } | null> {
+  try {
+    const payload = await verify(token, getJwtSecret())
+    if (payload && typeof payload === 'object' && 'address' in payload) {
+      return { address: payload.address as string }
+    }
+    return null
+  } catch (err) {
+    console.error('JWT verification error:', err)
+    return null
+  }
+}
+
+export async function generateJWT(address: string): Promise<string> {
+  const payload = {
+    address: address.toLowerCase(),
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60) // 2 hours
+  }
+  return await sign(payload, getJwtSecret())
 }
 
 // app.post('/create/:group_name', async (c) => {
@@ -232,6 +260,28 @@ app.post('/create/group', async (c) => {
   return c.json({ upload }, { status: 200 })
 })
 
+app.post('/auth/login', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  // Generate JWT token
+  const token = await generateJWT(address as string)
+  
+  return c.json({ 
+    token,
+    address: address.toLowerCase(),
+    expiresIn: '2h'
+  }, { status: 200 })
+})
+
 app.post('/update/file', async (c) => {
   const body = await c.req.json()
   const salt = body.salt
@@ -311,6 +361,49 @@ app.post('/update/file', async (c) => {
     console.error('File update error:', error)
     return c.json({ error: 'Failed to update file' }, { status: 500 })
   }
+})
+
+app.get('/pendingFilesByOwner', async (c) => {
+  // Only accept JWT tokens - remove signature fallback
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  console.log('token', token)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  // Verify that the authenticated address matches the requested owner
+  const requestedOwner = c.req.query('owner')?.toLowerCase()
+  if (!requestedOwner) {
+    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
+  }
+
+  console.log('jwtPayload', jwtPayload)
+  if (jwtPayload.address !== requestedOwner) {
+    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
+  }
+
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" })
+  console.log('files', files)
+
+  return c.json(files, { status: 200 })
 })
 
 export default app.fetch
