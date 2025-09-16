@@ -154,7 +154,19 @@ app.get('/groupByName/:group_name', async (c) => {
   return c.json(groups, { status: 200 })
 })
 
-app.get('/fileByCid/:cid', async (c) => {
+app.get('/fileByCid', async (c) => {
+  // Only accept JWT tokens - remove signature fallback
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
   const pinataJwt = Deno.env.get('PINATA_JWT')
   const gatewayUrl = Deno.env.get('GATEWAY_URL')
   
@@ -167,9 +179,11 @@ app.get('/fileByCid/:cid', async (c) => {
     pinataGateway: gatewayUrl
   })
 
-  const files = await pinata.files.public.list().cid(c.req.param('cid'))
+  const { data, contentType } = await pinata.gateways.private.get(
+    c.req.query('cid') as string
+  )
 
-  return c.json(files, { status: 200 })
+  return c.json(data, { status: 200 })
 })
 
 app.get('/filesByTags', async (c) => {
@@ -221,6 +235,7 @@ app.post('/create/group', async (c) => {
   const salt = body.salt
   const address = body.address
   const signature = body.signature
+  const content = body.content || "Initial Empty Json"
 
   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
   
@@ -245,19 +260,31 @@ app.post('/create/group', async (c) => {
     name: groupName,
   })
 
-  const upload = await pinata.upload.private
-  .json({
-    content: "Initial Empty Json",
-    lang: "ts"
-  })
-  .group(group.id)
-  .name(groupName)
-  .keyvalues({
-    owner: address.toLowerCase(),
-    status: "pending",
-  })
 
-  return c.json({ upload }, { status: 200 })
+  try {
+    let upload = await pinata.upload.private
+    .json({
+      content: content,
+      lang: "ts"
+    })
+    .group(group.id)
+    .name(groupName)
+    .keyvalues({
+      owner: address.toLowerCase(),
+      status: "pending",
+    })
+
+    let updatedUpload = await pinata.files.private.update({id: upload.id,
+      keyvalues: {
+        status: "pending",
+      }
+    })
+
+    return c.json({ updatedUpload }, { status: 200 })
+  } catch (error) {
+    console.error('File upload error:', error)
+    return c.json({ error: 'Failed to upload file' }, { status: 500 })
+  }
 })
 
 app.post('/auth/login', async (c) => {
@@ -371,7 +398,6 @@ app.get('/pendingFilesByOwner', async (c) => {
   }
 
   const token = authHeader.substring(7)
-  console.log('token', token)
   const jwtPayload = await verifyJWT(token)
   if (!jwtPayload) {
     return c.json({ error: 'Invalid or expired token' }, { status: 401 })
@@ -383,7 +409,6 @@ app.get('/pendingFilesByOwner', async (c) => {
     return c.json({ error: 'Owner parameter is required' }, { status: 400 })
   }
 
-  console.log('jwtPayload', jwtPayload)
   if (jwtPayload.address !== requestedOwner) {
     return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
   }
@@ -401,9 +426,70 @@ app.get('/pendingFilesByOwner', async (c) => {
   })
 
   const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" })
-  console.log('files', files)
 
   return c.json(files, { status: 200 })
+})
+
+app.post('/delete/file', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+  
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  const cid = c.req.query('cid')
+  const files = await pinata.files.private
+  .list()
+  .cid(cid as string)
+
+  console.log('files', files)
+
+  if (files.files.length === 0) {
+    return c.json({ error: 'No files found' }, { status: 404 })
+  }
+
+  // No other user can update the file
+  if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
+    return c.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // File can't be deleted if it's already published on chain
+  if (files.files[0].keyvalues.status === "onchain") {
+    return c.json({ error: 'File already published on chain' }, { status: 400 })
+  }
+
+  // same signature can't be used twice
+  if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`) {
+    return c.json({ error: 'File already exists' }, { status: 400 })
+  }
+
+  try {
+    const deletedFile = await pinata.files.private.delete([
+      files.files[0].id
+    ])
+
+    return c.json({ deletedFile }, { status: 200 })
+  } catch (error) {
+    console.error('File delete error:', error)
+    return c.json({ error: 'Failed to delete file' }, { status: 500 })
+  }
 })
 
 export default app.fetch
