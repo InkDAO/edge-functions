@@ -255,7 +255,7 @@ app.post('/create/group', async (c) => {
     pinataGateway: gatewayUrl
   })
 
-  const groupName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
+  const groupName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
   const group = await pinata.groups.private.create({
     name: groupName,
   })
@@ -351,7 +351,7 @@ app.post('/update/file', async (c) => {
       }
 
       // same signature can't be used twice
-      if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`) {
+      if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
         return c.json({ error: 'File already exists' }, { status: 400 })
       }
 
@@ -366,7 +366,7 @@ app.post('/update/file', async (c) => {
     }
 
     try {
-      const fileName = `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`
+      const fileName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
       const upload = await pinata.upload.private
       .json({
         content: content,
@@ -476,7 +476,7 @@ app.post('/delete/file', async (c) => {
   }
 
   // same signature can't be used twice
-  if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.toLowerCase()}`) {
+  if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
     return c.json({ error: 'File already exists' }, { status: 400 })
   }
 
