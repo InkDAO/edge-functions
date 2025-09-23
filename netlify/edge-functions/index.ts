@@ -425,7 +425,48 @@ app.get('/pendingFilesByOwner', async (c) => {
     pinataGateway: gatewayUrl
   })
 
-  const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" })
+  const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" }).limit(12)
+
+  return c.json(files, { status: 200 })
+})
+
+app.get('/filesByOwnerByNextPageToken', async (c) => {
+  // Only accept JWT tokens - remove signature fallback
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  // Verify that the authenticated address matches the requested owner
+  const requestedOwner = c.req.query('owner')?.toLowerCase()
+  if (!requestedOwner) {
+    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
+  }
+
+  if (jwtPayload.address !== requestedOwner) {
+    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
+  }
+
+  const pinataJwt = Deno.env.get('PINATA_JWT')
+  const gatewayUrl = Deno.env.get('GATEWAY_URL')
+  
+  if (!pinataJwt || !gatewayUrl) {
+    return c.json({ error: 'Missing environment variables' }, { status: 500 })
+  }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
+  const nextPageToken = c.req.query('next_page_token')
+  const files = await pinata.files.private.list().pageToken(nextPageToken as string).limit(12);
 
   return c.json(files, { status: 200 })
 })
@@ -458,8 +499,6 @@ app.post('/delete/file', async (c) => {
   const files = await pinata.files.private
   .list()
   .cid(cid as string)
-
-  console.log('files', files)
 
   if (files.files.length === 0) {
     return c.json({ error: 'No files found' }, { status: 404 })
