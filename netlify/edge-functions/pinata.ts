@@ -1,25 +1,37 @@
 import { Hono } from 'hono'
 import { PinataSDK } from 'pinata'
 import { cors } from 'hono/cors'
-import { getPinataConfig, corsOptions } from '../utils/shared.ts'
+import { getPinataConfig, corsOptions, authenticateSignature } from '../utils/shared.ts'
 
 const app = new Hono()
 
 // Add CORS middleware
 app.use('*', cors(corsOptions))
 
-app.get('/presigned_url/:group_id', async (c) => {
+app.get('/presigned_url', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+  
+  const { pinataJwt, gatewayUrl } = getPinataConfig()
+  
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
+
   try {
-    const { pinataJwt, gatewayUrl } = getPinataConfig()
-    
-    const pinata = new PinataSDK({
-      pinataJwt: pinataJwt,
-      pinataGateway: gatewayUrl
-    })
 
     const url = await pinata.upload.public.createSignedURL({
       expires: 60, // Last for 60 seconds
-      groupId: c.req.param('group_id')
+      name: 'thumbnail.png',
     })
 
     return c.json({ url }, { status: 200 })

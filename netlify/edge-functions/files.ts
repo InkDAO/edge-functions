@@ -199,52 +199,72 @@ app.post('/update/file', async (c) => {
   }
 })
 
-// app.post('/update/file/status', async (c) => {
-//   const body = await c.req.json()
-//   const salt = body.salt
-//   const address = body.address
-//   const signature = body.signature
-//   const cid = body.cid
-//   const status = body.status
+app.post('/publish/file', async (c) => {
+  try {
+    const formData = await c.req.formData()
+    const file = formData.get('file') as File
+    const salt = formData.get('salt') as string
+    const address = formData.get('address') as string
+    const signature = formData.get('signature') as string
 
-//   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  
-//   if (!isAuthenticated) {
-//     return c.json({ error: 'Authentication failed' }, { status: 401 })
-//   }
+    if (!file) {
+      return c.json({ error: 'File is required' }, { status: 400 })
+    }
 
-//   const { pinataJwt, gatewayUrl } = getPinataConfig()
+    if (!salt || !address || !signature) {
+      return c.json({ error: 'Salt, address, and signature are required' }, { status: 400 })
+    }
 
-//   const pinata = new PinataSDK({
-//     pinataJwt: pinataJwt,
-//     pinataGateway: gatewayUrl
-//   })
+    const isAuthenticated = await authenticateSignature(salt, signature, address)
+    
+    if (!isAuthenticated) {
+      return c.json({ error: 'Authentication failed' }, { status: 401 })
+    }
 
-//   const files = await pinata.files.private
-//     .list()
-//     .cid(cid as string)
+    const { pinataJwt, gatewayUrl } = getPinataConfig()
 
-//   if (files.files.length === 0) {
-//     return c.json({ error: 'No files found' }, { status: 404 })
-//   }
+    const pinata = new PinataSDK({
+      pinataJwt: pinataJwt,
+      pinataGateway: gatewayUrl
+    })
 
-//   if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-//     return c.json({ error: 'Unauthorized' }, { status: 401 })
-//   }
+    const cid = c.req.query('cid')
+    const files = await pinata.files.private
+		.list()
+		.cid(cid as string)
 
-//   try {
-//     const updatedFile = await pinata.files.private.update({id: files.files[0].id,
-//       keyvalues: {
-//         status: status
-//       }
-//     })
+    if (files.files.length === 1) {
+      if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
+        return c.json({ error: 'Unauthorized' }, { status: 401 })
+      }
 
-//     return c.json({ updatedFile }, { status: 200 })
-//   } catch (error) {
-//     console.error('File update error:', error)
-//     return c.json({ error: 'Failed to update file' }, { status: 500 })
-//   }
-// })
+      if (files.files[0].keyvalues.status === "onchain") {
+        return c.json({ error: 'File already published on chain' }, { status: 400 })
+      }
+
+      // Upload file with name "thumbnail.png"
+      const upload = await pinata.upload.public
+      .file(file)
+      .name('thumbnail.png')
+      .keyvalues({
+        group: files.files[0].group_id as string,
+      })
+
+      await pinata.files.private.update({id: files.files[0].id,
+        keyvalues: {
+          status: "onchain",
+        }
+      })
+
+      return c.json({ thumbnailCid: upload.cid }, { status: 200 })
+    }
+
+    return c.json({ error: 'No files found' }, { status: 404 })
+  } catch (error) {
+    console.error('File upload error:', error)
+    return c.json({ error: 'Failed to upload file' }, { status: 500 })
+  }
+})
 
 app.get('/pendingFilesByOwner', async (c) => {
   const authHeader = c.req.header('Authorization')
@@ -314,31 +334,32 @@ app.get('/filesByOwnerByNextPageToken', async (c) => {
 })
 
 app.get('/fileByAssetAddress', async (c) => {
-    const authHeader = c.req.header('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return c.json({ error: 'JWT token required' }, { status: 401 })
-    }
-  
-    const token = authHeader.substring(7)
-    const jwtPayload = await verifyJWT(token)
-    if (!jwtPayload) {
-      return c.json({ error: 'Invalid or expired token' }, { status: 401 })
-    }
-  
-    const requestedUser = c.req.query('user')?.toLowerCase()
-    if (!requestedUser) {
-      return c.json({ error: 'Owner parameter is required' }, { status: 400 })
-    }
-  
-    if (jwtPayload.address !== requestedUser) {
-      return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
-    }
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
 
-    const dXassetAddress = c.req.query('assetAddress')
-    if (!dXassetAddress) {
-      return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
-    }
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
 
+  const requestedUser = c.req.query('user')?.toLowerCase()
+  if (!requestedUser) {
+    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
+  }
+
+  if (jwtPayload.address !== requestedUser) {
+    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
+  }
+
+  const dXassetAddress = c.req.query('assetAddress')
+  if (!dXassetAddress) {
+    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+  }
+
+  try {
     const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
     const balance = await dXassetContract.balanceOf(requestedUser)
     if (balance === 0) {
@@ -354,11 +375,15 @@ app.get('/fileByAssetAddress', async (c) => {
       pinataGateway: gatewayUrl
     })
   
-    const files = await pinata.files.private
-    .list()
-    .cid(assetCid)
-
-    return c.json(files, { status: 200 })
+    const { data, contentType } = await pinata.gateways.private.get(
+      assetCid as string
+    )
+  
+    return c.json(data, { status: 200 })
+  } catch (error) {
+    console.error('File fetch error:', error)
+    return c.json({ error: 'Failed to fetch file' }, { status: 500 })
+  }
 })
 
 app.post('/delete/file', async (c) => {
@@ -416,5 +441,5 @@ app.post('/delete/file', async (c) => {
 export default app.fetch
 
 export const config = {
-  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress"]
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress"]
 }
