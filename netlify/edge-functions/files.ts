@@ -364,7 +364,7 @@ app.get('/fileByAssetAddress', async (c) => {
     const balance = await dXassetContract.balanceOf(requestedUser)
     const author = await dXassetContract.owner()
     if (author.toLowerCase() !== requestedUser.toLowerCase() && balance == 0) {
-      return c.json({ error: 'Unauthorized: Do not have dXasset' }, { status: 403 })
+      return c.json({ error: 'Unauthorized: Do not have dXasset' }, { status: 404 })
     }
 
     const assetCid = await dXassetContract.assetCid()
