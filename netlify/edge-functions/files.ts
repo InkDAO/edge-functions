@@ -363,7 +363,7 @@ app.get('/fileByAssetAddress', async (c) => {
     const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
     const balance = await dXassetContract.balanceOf(requestedUser)
     const author = await dXassetContract.owner()
-    if (author !== requestedUser || balance == 0) {
+    if (author.toLowerCase() !== requestedUser.toLowerCase() && balance == 0) {
       return c.json({ error: 'Unauthorized: Do not have dXasset' }, { status: 403 })
     }
 
