@@ -29,8 +29,23 @@ app.get('/fileByCid', async (c) => {
     pinataGateway: gatewayUrl
   })
 
+  const cid = c.req.query('cid')
+  const files = await pinata.files.private.list().cid(
+    cid as string
+  )
+
+  if (files.files.length === 1) {
+    if (files.files[0].keyvalues.owner !== jwtPayload.address.toLowerCase()) {
+      return c.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (files.files[0].keyvalues.status === "onchain") {
+      return c.json({ error: 'File already published on chain' }, { status: 400 })
+    }
+  }
+
   const { data, contentType } = await pinata.gateways.private.get(
-    c.req.query('cid') as string
+    cid as string
   )
 
   return c.json(data, { status: 200 })
