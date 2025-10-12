@@ -35,6 +35,10 @@
   path = "/fileByAssetAddress"
 
 [[edge_functions]]
+  function = "files"
+  path = "/freeFileByAddress"
+
+[[edge_functions]]
   function = "pinata"
   path = "/presigned_url/*"
   

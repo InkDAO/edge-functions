@@ -454,8 +454,41 @@ app.post('/delete/file', async (c) => {
   }
 })
 
+app.get('/freeFileByAddress', async (c) => {
+  const dXassetAddress = c.req.query('assetAddress')
+  if (!dXassetAddress) {
+    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+  }
+
+  try {
+    const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
+    const price = await dXassetContract.costInNativeInWei()
+    if (price > 0) {
+      return c.json({ error: 'File is not free' }, { status: 400 })
+    }
+
+    const assetCid = await dXassetContract.assetCid()
+  
+    const { pinataJwt, gatewayUrl } = getPinataConfig()
+  
+    const pinata = new PinataSDK({
+      pinataJwt: pinataJwt,
+      pinataGateway: gatewayUrl
+    })
+  
+    const { data, contentType } = await pinata.gateways.private.get(
+      assetCid as string
+    )
+  
+    return c.json(data, { status: 200 })
+  } catch (error) {
+    console.error('File fetch error:', error)
+    return c.json({ error: 'Failed to fetch file' }, { status: 500 })
+  }
+})
+
 export default app.fetch
 
 export const config = {
-  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress"]
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress"]
 }
