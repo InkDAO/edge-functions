@@ -3,7 +3,7 @@ import { ethers } from 'ethers'
 import { cors } from 'hono/cors'
 import dXasset_abi from '../abis/dXasset.ts'
 import { provider } from '../utils/provider.ts'
-import { deleteFile, getFileByCid } from './pinata.ts'
+import { deleteFile, getFileByCid } from '../utils/pinata.ts'
 import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
 
 const app = new Hono()

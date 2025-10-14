@@ -1,4 +1,4 @@
-import { getPinataConfig } from '../utils/shared'
+import { getPinataConfig } from './shared.ts'
 
 export const deleteFile = async (fileId: string) => {
   const { pinata } = getPinataConfig()
