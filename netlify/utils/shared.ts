@@ -1,12 +1,16 @@
-import { verifyMessage } from 'ethers'
+import { verifyMessage, ethers } from 'ethers'
 import { sign, verify } from 'hono/jwt'
 import { PinataSDK } from 'pinata'
+import dXmaster_abi from '../abis/dXmaster.ts'
 
 declare const Deno: {
   env: {
     get(key: string): string | undefined
   }
 }
+
+// Create interface for decoding blockchain events
+const iface = new ethers.Interface(dXmaster_abi)
 
 export const getJwtSecret = () => {
   return Deno.env.get('SECRET_KEY') as string
@@ -70,6 +74,38 @@ export async function generateJWT(address: string): Promise<string> {
     exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60) // 2 hours
   }
   return await sign(payload, getJwtSecret())
+}
+
+/**
+ * Decodes blockchain webhook data and extracts asset information
+ * @param webhookBody - The webhook body from the blockchain event
+ * @returns Decoded asset data including assetCid, or null if not an AssetAdded event
+ */
+export function decodeWebhookAssetData(webhookBody: any) {
+  try {
+    if (!webhookBody?.event?.data?.block?.logs || webhookBody.event.data.block.logs.length === 0) {
+      return null
+    }
+
+    const log = webhookBody.event.data.block.logs[0]
+    
+    const decodedEvent = iface.parseLog({
+      topics: log.topics,
+      data: log.data
+    })
+    
+    if (!decodedEvent || decodedEvent.name !== 'AssetAdded') {
+      return null
+    }
+
+    return {
+      assetCid: decodedEvent.args._assetCid,
+      author: decodedEvent.args._author
+    }
+  } catch (error) {
+    console.error('Error decoding webhook data:', error)
+    return null
+  }
 }
 
 export const corsOptions = {

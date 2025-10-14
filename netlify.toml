@@ -50,6 +50,10 @@
   function = "index"
   path = "/"
 
+[[edge_functions]]
+  function = "index"
+  path = "/webhook"
+
 [build.environment]
   # Environment variables for Edge Functions
   # Note: You need to set these in Netlify's dashboard or via CLI

@@ -196,7 +196,6 @@ app.post('/update/file', async (c) => {
 /**
  * Publish the file on chain.
  * - upload the thumbnail.png
- * - update the file status to "onchain"
  * no jwt token is required for this request.
  * double attack is prevented by the file status.
  * file should not be owned by the user
@@ -234,12 +233,6 @@ app.post('/publish/file', async (c) => {
     .name('thumbnail.png')
     .keyvalues({
       group: file.group_id as string,
-    })
-
-    await pinata.files.private.update({id: file.id,
-      keyvalues: {
-        status: "onchain",
-      }
     })
 
     return c.json({ thumbnailCid: upload.cid }, { status: 200 })
