@@ -1,15 +1,22 @@
 import { Hono } from 'hono'
-import { PinataSDK } from 'pinata'
-import { cors } from 'hono/cors'
-import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
-import dXasset_abi from '../abis/dXasset.ts'
 import { ethers } from 'ethers'
+import { cors } from 'hono/cors'
+import dXasset_abi from '../abis/dXasset.ts'
 import { provider } from '../utils/provider.ts'
+import { deleteFile, getFileByCid } from './pinata.ts'
+import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
 
 const app = new Hono()
 
 app.use('*', cors(corsOptions))
 
+/**
+ * Get file by CID
+ * jwt token is required for this request.
+ * file should not be published on chain
+ * file should be owned by the user
+ * return the file data
+ */
 app.get('/fileByCid', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -22,37 +29,25 @@ app.get('/fileByCid', async (c) => {
     return c.json({ error: 'Invalid or expired token' }, { status: 401 })
   }
 
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
-
   const cid = c.req.query('cid')
-  const files = await pinata.files.private.list().cid(
-    cid as string
-  )
-
-  if (files.files.length === 1) {
-    if (files.files[0].keyvalues.owner !== jwtPayload.address.toLowerCase()) {
-      return c.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    if (files.files[0].keyvalues.status === "onchain") {
-      return c.json({ error: 'File already published on chain' }, { status: 400 })
-    }
+  const file = await getFileByCid(cid as string, jwtPayload.address.toLowerCase())
+  if (!file) {
+    return c.json({ error: 'No file found' }, { status: 404 })
   }
-
-  const { data, contentType } = await pinata.gateways.private.get(
-    cid as string
-  )
+  
+  const { pinata } = getPinataConfig()
+  const { data } = await pinata.gateways.private.get(file.cid)
 
   return c.json(data, { status: 200 })
 })
 
+/**
+ * Get files by tags
+ * public access is allowed
+ * return the files meta data
+ */
 app.get('/filesByTags', async (c) => {
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
+  const { pinata } = getPinataConfig()
 
   const tags = c.req.query('tags') // Comma-separated list of tags
   
@@ -70,13 +65,8 @@ app.get('/filesByTags', async (c) => {
     return acc;
   }, {} as Record<string, string>);
   
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
-
   try {
-    const files = await pinata.files.public.list().keyvalues(keyvalues)
+    const files = await pinata.files.private.list().keyvalues(keyvalues)
 
     return c.json({ 
       files: files.files || [],
@@ -89,6 +79,14 @@ app.get('/filesByTags', async (c) => {
   }
 })
 
+/**
+ * Create a group and upload the file,first time draft is saved.
+ * no jwt token is required for this request.
+ * double attack is prevented by the groupName, 
+ * - signature can't be used after 10 seconds
+ * - it will revert withing 10 seconds if the groupName already exists.
+ * return the upload data
+ */
 app.post('/create/group', async (c) => {
   const body = await c.req.json()
   const salt = body.salt
@@ -97,17 +95,11 @@ app.post('/create/group', async (c) => {
   const content = body.content || "Initial Empty Json"
 
   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  
   if (!isAuthenticated) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
   }
   
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+  const { pinata } = getPinataConfig()
 
   const groupName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
   const group = await pinata.groups.private.create({
@@ -140,6 +132,15 @@ app.post('/create/group', async (c) => {
   }
 })
 
+/**
+ * Update the file, everytime the draft is saved. deleting the older file and creating the new one.
+ * no jwt token is required for this request.
+ * double attack is prevented by the file name, 
+ * - it will revert if the file name already exists.
+ * file should not be published on chain
+ * file should be owned by the user
+ * return the upload data
+ */
 app.post('/update/file', async (c) => {
   const body = await c.req.json()
   const salt = body.salt
@@ -148,46 +149,24 @@ app.post('/update/file', async (c) => {
   const content = body.content
 
   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  
   if (!isAuthenticated) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
   }
 
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+  const { pinata } = getPinataConfig()
 
   try {
     const cid = c.req.query('cid')
-    const files = await pinata.files.private
-		.list()
-		.cid(cid as string)
-
-    if (files.files.length === 1) {
-      if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-        return c.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
-      if (files.files[0].keyvalues.status === "onchain") {
-        return c.json({ error: 'File already published on chain' }, { status: 400 })
-      }
-
-      if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
-        return c.json({ error: 'File already exists' }, { status: 400 })
-      }
-
-      try {
-        await pinata.files.private.delete([
-          files.files[0].id
-        ])
-      } catch (error) {
-        console.error('File delete error:', error)
-        return c.json({ error: 'Failed to delete file' }, { status: 500 })
-      }
+    const file = await getFileByCid(cid as string, address.toLowerCase())
+    if (!file) {
+      return c.json({ error: 'No file found' }, { status: 404 })
     }
+
+    if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
+      return c.json({ error: 'File already exists' }, { status: 400 })
+    }
+
+    await deleteFile(file.id)
 
     try {
       const fileName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
@@ -196,7 +175,7 @@ app.post('/update/file', async (c) => {
         content: content,
         lang: "ts"
       })
-      .group(files.files[0].group_id as string)
+      .group(file.group_id as string)
       .name(fileName)
       .keyvalues({
         owner: address.toLowerCase(),
@@ -214,73 +193,67 @@ app.post('/update/file', async (c) => {
   }
 })
 
+/**
+ * Publish the file on chain.
+ * - upload the thumbnail.png
+ * - update the file status to "onchain"
+ * no jwt token is required for this request.
+ * double attack is prevented by the file status.
+ * file should not be owned by the user
+ * file should not be published on chain
+ * return the thumbnail cid
+ */
 app.post('/publish/file', async (c) => {
   try {
     const formData = await c.req.formData()
-    const file = formData.get('file') as File
+    const thumbnail = formData.get('file') as File // thumbnail.png
     const salt = formData.get('salt') as string
     const address = formData.get('address') as string
     const signature = formData.get('signature') as string
 
-    if (!file) {
+    if (!thumbnail) {
       return c.json({ error: 'File is required' }, { status: 400 })
     }
 
-    if (!salt || !address || !signature) {
-      return c.json({ error: 'Salt, address, and signature are required' }, { status: 400 })
-    }
-
-    const isAuthenticated = await authenticateSignature(salt, signature, address)
-    
+    const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
     if (!isAuthenticated) {
       return c.json({ error: 'Authentication failed' }, { status: 401 })
     }
 
-    const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-    const pinata = new PinataSDK({
-      pinataJwt: pinataJwt,
-      pinataGateway: gatewayUrl
-    })
+    const { pinata } = getPinataConfig()
 
     const cid = c.req.query('cid')
-    const files = await pinata.files.private
-		.list()
-		.cid(cid as string)
-
-    if (files.files.length === 1) {
-      if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-        return c.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
-      if (files.files[0].keyvalues.status === "onchain") {
-        return c.json({ error: 'File already published on chain' }, { status: 400 })
-      }
-
-      // Upload file with name "thumbnail.png"
-      const upload = await pinata.upload.public
-      .file(file)
-      .name('thumbnail.png')
-      .keyvalues({
-        group: files.files[0].group_id as string,
-      })
-
-      await pinata.files.private.update({id: files.files[0].id,
-        keyvalues: {
-          status: "onchain",
-        }
-      })
-
-      return c.json({ thumbnailCid: upload.cid }, { status: 200 })
+    const file = await getFileByCid(cid as string, address.toLowerCase())
+    if (!file) {
+      return c.json({ error: 'No file found' }, { status: 404 })
     }
 
-    return c.json({ error: 'No files found' }, { status: 404 })
+    // Upload file with name "thumbnail.png"
+    const upload = await pinata.upload.public
+    .file(thumbnail)
+    .name('thumbnail.png')
+    .keyvalues({
+      group: file.group_id as string,
+    })
+
+    await pinata.files.private.update({id: file.id,
+      keyvalues: {
+        status: "onchain",
+      }
+    })
+
+    return c.json({ thumbnailCid: upload.cid }, { status: 200 })
   } catch (error) {
     console.error('File upload error:', error)
     return c.json({ error: 'Failed to upload file' }, { status: 500 })
   }
 })
 
+/**
+ * Get the pending files by owner
+ * jwt token is required for this request.
+ * return the owner's files data which are not published on chain
+ */
 app.get('/pendingFilesByOwner', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -298,22 +271,18 @@ app.get('/pendingFilesByOwner', async (c) => {
     return c.json({ error: 'Owner parameter is required' }, { status: 400 })
   }
 
-  if (jwtPayload.address !== requestedOwner) {
-    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
-  }
-
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+  const { pinata } = getPinataConfig()
 
   const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" }).limit(12)
 
   return c.json(files, { status: 200 })
 })
 
+/**
+ * Get the files by owner by next page token
+ * jwt token is required for this request.
+ * return the files data by next page token
+ */
 app.get('/filesByOwnerByNextPageToken', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -331,16 +300,7 @@ app.get('/filesByOwnerByNextPageToken', async (c) => {
     return c.json({ error: 'Owner parameter is required' }, { status: 400 })
   }
 
-  if (jwtPayload.address !== requestedOwner) {
-    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
-  }
-
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+  const { pinata } = getPinataConfig()
 
   const nextPageToken = c.req.query('next_page_token')
   const files = await pinata.files.private.list().pageToken(nextPageToken as string).limit(9);
@@ -348,6 +308,14 @@ app.get('/filesByOwnerByNextPageToken', async (c) => {
   return c.json(files, { status: 200 })
 })
 
+/**
+ * Get the file by asset address
+ * jwt token is required for this request.
+ * return file only when
+ * - if the user has the dXasset token
+ * - if the user is the author of the dXasset token
+ * return the file data
+ */
 app.get('/fileByAssetAddress', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -362,11 +330,7 @@ app.get('/fileByAssetAddress', async (c) => {
 
   const requestedUser = c.req.query('user')?.toLowerCase()
   if (!requestedUser) {
-    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
-  }
-
-  if (jwtPayload.address !== requestedUser) {
-    return c.json({ error: 'Unauthorized: Cannot access files for different owner' }, { status: 403 })
+    return c.json({ error: 'user parameter is required' }, { status: 400 })
   }
 
   const dXassetAddress = c.req.query('assetAddress')
@@ -384,14 +348,9 @@ app.get('/fileByAssetAddress', async (c) => {
 
     const assetCid = await dXassetContract.assetCid()
   
-    const { pinataJwt, gatewayUrl } = getPinataConfig()
+    const { pinata } = getPinataConfig()
   
-    const pinata = new PinataSDK({
-      pinataJwt: pinataJwt,
-      pinataGateway: gatewayUrl
-    })
-  
-    const { data, contentType } = await pinata.gateways.private.get(
+    const { data } = await pinata.gateways.private.get(
       assetCid as string
     )
   
@@ -402,6 +361,14 @@ app.get('/fileByAssetAddress', async (c) => {
   }
 })
 
+/**
+ * Delete the file
+ * no jwt token is required for this request.
+ * double attack is prevented by the file name
+ * file should be owned by the user
+ * file should not be published on chain
+ * return the deleted file data
+ */
 app.post('/delete/file', async (c) => {
   const body = await c.req.json()
   const salt = body.salt
@@ -409,51 +376,35 @@ app.post('/delete/file', async (c) => {
   const signature = body.signature
   
   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  
   if (!isAuthenticated) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
   }
 
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
-
   const cid = c.req.query('cid')
-  const files = await pinata.files.private
-  .list()
-  .cid(cid as string)
-
-  if (files.files.length === 0) {
-    return c.json({ error: 'No files found' }, { status: 404 })
+  const file = await getFileByCid(cid as string, address.toLowerCase())
+  if (!file) {
+    return c.json({ error: 'No file found' }, { status: 404 })
   }
 
-  if (files.files[0].keyvalues.owner !== address.toLowerCase()) {
-    return c.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  if (files.files[0].keyvalues.status === "onchain") {
-    return c.json({ error: 'File already published on chain' }, { status: 400 })
-  }
-
-  if (files.files[0].name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
+  if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
     return c.json({ error: 'File already exists' }, { status: 400 })
   }
 
-  try {
-    const deletedFile = await pinata.files.private.delete([
-      files.files[0].id
-    ])
-
+  const deletedFile = await deleteFile(file.id)
+  if (deletedFile) {
     return c.json({ deletedFile }, { status: 200 })
-  } catch (error) {
-    console.error('File delete error:', error)
-    return c.json({ error: 'Failed to delete file' }, { status: 500 })
   }
+
+  return c.json({ error: 'Failed to delete file' }, { status: 500 })
 })
 
+/**
+ * Get the file by address when the file is free
+ * public access is allowed
+ * no jwt token is required for this request.
+ * no digital signature is required for this request.
+ * return the file data
+ */
 app.get('/freeFileByAddress', async (c) => {
   const dXassetAddress = c.req.query('assetAddress')
   if (!dXassetAddress) {
@@ -469,14 +420,9 @@ app.get('/freeFileByAddress', async (c) => {
 
     const assetCid = await dXassetContract.assetCid()
   
-    const { pinataJwt, gatewayUrl } = getPinataConfig()
+    const { pinata } = getPinataConfig()
   
-    const pinata = new PinataSDK({
-      pinataJwt: pinataJwt,
-      pinataGateway: gatewayUrl
-    })
-  
-    const { data, contentType } = await pinata.gateways.private.get(
+    const { data } = await pinata.gateways.private.get(
       assetCid as string
     )
   

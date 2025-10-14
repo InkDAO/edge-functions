@@ -1,5 +1,6 @@
 import { verifyMessage } from 'ethers'
 import { sign, verify } from 'hono/jwt'
+import { PinataSDK } from 'pinata'
 
 declare const Deno: {
   env: {
@@ -18,8 +19,13 @@ export const getPinataConfig = () => {
   if (!pinataJwt || !gatewayUrl) {
     throw new Error('Missing Pinata environment variables')
   }
+
+  const pinata = new PinataSDK({
+    pinataJwt: pinataJwt,
+    pinataGateway: gatewayUrl
+  })
   
-  return { pinataJwt, gatewayUrl }
+  return { pinata }
 }
 
 export async function authenticateSignature(

@@ -1,69 +1,42 @@
-import { Hono } from 'hono'
-import { PinataSDK } from 'pinata'
-import { cors } from 'hono/cors'
-import { getPinataConfig, corsOptions, authenticateSignature } from '../utils/shared.ts'
+import { getPinataConfig } from '../utils/shared'
 
-const app = new Hono()
-
-// Add CORS middleware
-app.use('*', cors(corsOptions))
-
-app.get('/presigned_url', async (c) => {
-  const body = await c.req.json()
-  const salt = body.salt
-  const address = body.address
-  const signature = body.signature
-
-  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  
-  if (!isAuthenticated) {
-    return c.json({ error: 'Authentication failed' }, { status: 401 })
-  }
-  
-  const { pinataJwt, gatewayUrl } = getPinataConfig()
-  
-  const pinata = new PinataSDK({
-    pinataJwt: pinataJwt,
-    pinataGateway: gatewayUrl
-  })
+export const deleteFile = async (fileId: string) => {
+  const { pinata } = getPinataConfig()
 
   try {
-
-    const url = await pinata.upload.public.createSignedURL({
-      expires: 60, // Last for 60 seconds
-      name: 'thumbnail.png',
-    })
-
-    return c.json({ url }, { status: 200 })
+    const deletedFile = await pinata.files.private.delete([fileId])
+    return deletedFile
   } catch (error) {
-    console.error('Pinata error:', error)
-    return c.json({ error: 'Failed to generate presigned URL' }, { status: 500 })
+    console.error('File delete error:', error)
+    return null
   }
-})
+}
 
-app.get('/groupByName/:group_name', async (c) => {
+export const getFileByCid = async (cid: string, authorizedAddress: string) => {
+  if (!cid) {
+    return null
+  }
+  
+  const { pinata } = getPinataConfig()
+
   try {
-    const { pinataJwt, gatewayUrl } = getPinataConfig()
+    const response = await pinata.files.private.list().cid(cid)
+    if (response.files.length === 0) {
+      return null
+    }
 
-    const pinata = new PinataSDK({
-      pinataJwt: pinataJwt,
-      pinataGateway: gatewayUrl
-    })
+    const file = response.files[0];
+    if (file.keyvalues.owner !== authorizedAddress.toLowerCase()) {
+      return null;
+    }
     
-    const groups = await pinata.groups.public
-      .list()
-      .name(c.req.param('group_name'))
-      .limit(1)
+    if (file.keyvalues.status === "onchain") {
+      return null;
+    }
 
-    return c.json(groups, { status: 200 })
+    return file;
   } catch (error) {
-    console.error('Pinata error:', error)
-    return c.json({ error: 'Failed to get group by name' }, { status: 500 })
+    console.error('File get error:', error)
+    return null
   }
-})
-
-export default app.fetch
-
-export const config = {
-  path: ["/presigned_url/*", "/groupByName/*"]
 }
