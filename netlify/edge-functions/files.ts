@@ -1,0 +1,433 @@
+import { Hono } from 'hono'
+import { ethers } from 'ethers'
+import { cors } from 'hono/cors'
+import dXasset_abi from '../abis/dXasset.ts'
+import { provider } from '../utils/provider.ts'
+import { deleteFile, getFileByCid } from '../utils/pinata.ts'
+import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
+
+const app = new Hono()
+
+app.use('*', cors(corsOptions))
+
+/**
+ * Get file by CID
+ * jwt token is required for this request.
+ * file should not be published on chain
+ * file should be owned by the user
+ * return the file data
+ */
+app.get('/fileByCid', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  const cid = c.req.query('cid')
+  const file = await getFileByCid(cid as string, jwtPayload.address.toLowerCase())
+  if (!file) {
+    return c.json({ error: 'No file found' }, { status: 404 })
+  }
+  
+  const { pinata } = getPinataConfig()
+  const { data } = await pinata.gateways.private.get(file.cid)
+
+  return c.json(data, { status: 200 })
+})
+
+/**
+ * Get files by tags
+ * public access is allowed
+ * return the files meta data
+ */
+app.get('/filesByTags', async (c) => {
+  const { pinata } = getPinataConfig()
+
+  const tags = c.req.query('tags') // Comma-separated list of tags
+  
+  if (!tags) {
+    return c.json({ error: 'Tags parameter is required. Use comma-separated values (e.g., ?tags=tag1,tag2,tag3)' }, { status: 400 })
+  }
+
+  const tagArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
+  if (tagArray.length === 0) {
+    return c.json({ error: 'At least one valid tag is required' }, { status: 400 })
+  }
+
+  const keyvalues = tagArray.reduce((acc, tag) => {
+    acc[tag] = tag;
+    return acc;
+  }, {} as Record<string, string>);
+  
+  try {
+    const files = await pinata.files.private.list().keyvalues(keyvalues)
+
+    return c.json({ 
+      files: files.files || [],
+      count: files.files.length || 0,
+      tags: tagArray
+    }, { status: 200 })
+  } catch (error) {
+    console.error('Error filtering files by multiple tags:', error)
+    return c.json({ error: 'Failed to filter files by tags' }, { status: 500 })
+  }
+})
+
+/**
+ * Create a group and upload the file,first time draft is saved.
+ * no jwt token is required for this request.
+ * double attack is prevented by the groupName, 
+ * - signature can't be used after 10 seconds
+ * - it will revert withing 10 seconds if the groupName already exists.
+ * return the upload data
+ */
+app.post('/create/group', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+  const content = body.content || "Initial Empty Json"
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+  
+  const { pinata } = getPinataConfig()
+
+  const groupName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
+  const group = await pinata.groups.private.create({
+    name: groupName,
+  })
+
+  try {
+    let upload = await pinata.upload.private
+    .json({
+      content: content,
+      lang: "ts"
+    })
+    .group(group.id)
+    .name(groupName)
+    .keyvalues({
+      owner: address.toLowerCase(),
+      status: "pending",
+    })
+
+    let updatedUpload = await pinata.files.private.update({id: upload.id,
+      keyvalues: {
+        status: "pending",
+      }
+    })
+
+    return c.json({ updatedUpload }, { status: 200 })
+  } catch (error) {
+    console.error('File upload error:', error)
+    return c.json({ error: 'Failed to upload file' }, { status: 500 })
+  }
+})
+
+/**
+ * Update the file, everytime the draft is saved. deleting the older file and creating the new one.
+ * no jwt token is required for this request.
+ * double attack is prevented by the file name, 
+ * - it will revert if the file name already exists.
+ * file should not be published on chain
+ * file should be owned by the user
+ * return the upload data
+ */
+app.post('/update/file', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+  const content = body.content
+
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  const { pinata } = getPinataConfig()
+
+  try {
+    const cid = c.req.query('cid')
+    const file = await getFileByCid(cid as string, address.toLowerCase())
+    if (!file) {
+      return c.json({ error: 'No file found' }, { status: 404 })
+    }
+
+    if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
+      return c.json({ error: 'File already exists' }, { status: 400 })
+    }
+
+    await deleteFile(file.id)
+
+    try {
+      const fileName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
+      const upload = await pinata.upload.private
+      .json({
+        content: content,
+        lang: "ts"
+      })
+      .group(file.group_id as string)
+      .name(fileName)
+      .keyvalues({
+        owner: address.toLowerCase(),
+        status: "pending",
+      })
+
+      return c.json({ upload }, { status: 200 })
+    } catch (error) {
+      console.error('File upload error:', error)
+      return c.json({ error: 'Failed to upload file' }, { status: 500 })
+    }
+  } catch (error) {
+    console.error('File update error:', error)
+    return c.json({ error: 'Failed to update file' }, { status: 500 })
+  }
+})
+
+/**
+ * Publish the file on chain.
+ * - upload the thumbnail.png
+ * no jwt token is required for this request.
+ * double attack is prevented by the file status.
+ * file should not be owned by the user
+ * file should not be published on chain
+ * return the thumbnail cid
+ */
+app.post('/publish/file', async (c) => {
+  try {
+    const formData = await c.req.formData()
+    const thumbnail = formData.get('file') as File // thumbnail.png
+    const salt = formData.get('salt') as string
+    const address = formData.get('address') as string
+    const signature = formData.get('signature') as string
+
+    if (!thumbnail) {
+      return c.json({ error: 'File is required' }, { status: 400 })
+    }
+
+    const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+    if (!isAuthenticated) {
+      return c.json({ error: 'Authentication failed' }, { status: 401 })
+    }
+
+    const { pinata } = getPinataConfig()
+
+    const cid = c.req.query('cid')
+    const file = await getFileByCid(cid as string, address.toLowerCase())
+    if (!file) {
+      return c.json({ error: 'No file found' }, { status: 404 })
+    }
+
+    // Upload file with name "thumbnail.png"
+    const upload = await pinata.upload.public
+    .file(thumbnail)
+    .name('thumbnail.png')
+    .keyvalues({
+      group: file.group_id as string,
+    })
+
+    return c.json({ thumbnailCid: upload.cid }, { status: 200 })
+  } catch (error) {
+    console.error('File upload error:', error)
+    return c.json({ error: 'Failed to upload file' }, { status: 500 })
+  }
+})
+
+/**
+ * Get the pending files by owner
+ * jwt token is required for this request.
+ * return the owner's files data which are not published on chain
+ */
+app.get('/pendingFilesByOwner', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  const requestedOwner = c.req.query('owner')?.toLowerCase()
+  if (!requestedOwner) {
+    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
+  }
+
+  const { pinata } = getPinataConfig()
+
+  const files = await pinata.files.private.list().keyvalues({ owner: requestedOwner, status: "pending" }).limit(12)
+
+  return c.json(files, { status: 200 })
+})
+
+/**
+ * Get the files by owner by next page token
+ * jwt token is required for this request.
+ * return the files data by next page token
+ */
+app.get('/filesByOwnerByNextPageToken', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  const requestedOwner = c.req.query('owner')?.toLowerCase()
+  if (!requestedOwner) {
+    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
+  }
+
+  const { pinata } = getPinataConfig()
+
+  const nextPageToken = c.req.query('next_page_token')
+  const files = await pinata.files.private.list().pageToken(nextPageToken as string).limit(9);
+
+  return c.json(files, { status: 200 })
+})
+
+/**
+ * Get the file by asset address
+ * jwt token is required for this request.
+ * return file only when
+ * - if the user has the dXasset token
+ * - if the user is the author of the dXasset token
+ * return the file data
+ */
+app.get('/fileByAssetAddress', async (c) => {
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'JWT token required' }, { status: 401 })
+  }
+
+  const token = authHeader.substring(7)
+  const jwtPayload = await verifyJWT(token)
+  if (!jwtPayload) {
+    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
+  }
+
+  const requestedUser = c.req.query('user')?.toLowerCase()
+  if (!requestedUser) {
+    return c.json({ error: 'user parameter is required' }, { status: 400 })
+  }
+
+  const dXassetAddress = c.req.query('assetAddress')
+  if (!dXassetAddress) {
+    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+  }
+
+  try {
+    const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
+    const balance = await dXassetContract.balanceOf(requestedUser)
+    const author = await dXassetContract.owner()
+    if (author.toLowerCase() !== requestedUser.toLowerCase() && balance == 0) {
+      return c.json({ error: 'Unauthorized: Do not have dXasset' }, { status: 404 })
+    }
+
+    const assetCid = await dXassetContract.assetCid()
+  
+    const { pinata } = getPinataConfig()
+  
+    const { data } = await pinata.gateways.private.get(
+      assetCid as string
+    )
+  
+    return c.json(data, { status: 200 })
+  } catch (error) {
+    console.error('File fetch error:', error)
+    return c.json({ error: 'Failed to fetch file' }, { status: 500 })
+  }
+})
+
+/**
+ * Delete the file
+ * no jwt token is required for this request.
+ * double attack is prevented by the file name
+ * file should be owned by the user
+ * file should not be published on chain
+ * return the deleted file data
+ */
+app.post('/delete/file', async (c) => {
+  const body = await c.req.json()
+  const salt = body.salt
+  const address = body.address
+  const signature = body.signature
+  
+  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
+  if (!isAuthenticated) {
+    return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  const cid = c.req.query('cid')
+  const file = await getFileByCid(cid as string, address.toLowerCase())
+  if (!file) {
+    return c.json({ error: 'No file found' }, { status: 404 })
+  }
+
+  if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
+    return c.json({ error: 'File already exists' }, { status: 400 })
+  }
+
+  const deletedFile = await deleteFile(file.id)
+  if (deletedFile) {
+    return c.json({ deletedFile }, { status: 200 })
+  }
+
+  return c.json({ error: 'Failed to delete file' }, { status: 500 })
+})
+
+/**
+ * Get the file by address when the file is free
+ * public access is allowed
+ * no jwt token is required for this request.
+ * no digital signature is required for this request.
+ * return the file data
+ */
+app.get('/freeFileByAddress', async (c) => {
+  const dXassetAddress = c.req.query('assetAddress')
+  if (!dXassetAddress) {
+    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+  }
+
+  try {
+    const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
+    const price = await dXassetContract.costInNativeInWei()
+    if (price > 0) {
+      return c.json({ error: 'File is not free' }, { status: 400 })
+    }
+
+    const assetCid = await dXassetContract.assetCid()
+  
+    const { pinata } = getPinataConfig()
+  
+    const { data } = await pinata.gateways.private.get(
+      assetCid as string
+    )
+  
+    return c.json(data, { status: 200 })
+  } catch (error) {
+    console.error('File fetch error:', error)
+    return c.json({ error: 'Failed to fetch file' }, { status: 500 })
+  }
+})
+
+export default app.fetch
+
+export const config = {
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress"]
+}

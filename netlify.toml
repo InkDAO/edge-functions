@@ -1,6 +1,62 @@
 [[edge_functions]]
+  function = "auth"
+  path = "/auth/*"
+
+[[edge_functions]]
+  function = "files"
+  path = "/fileByCid"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/filesByTags"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/create/group"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/update/file"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/pendingFilesByOwner"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/filesByOwnerByNextPageToken"
+  
+[[edge_functions]]
+  function = "files"
+  path = "/delete/file"
+
+[[edge_functions]]
+  function = "files"
+  path = "/fileByAssetAddress"
+
+[[edge_functions]]
+  function = "files"
+  path = "/freeFileByAddress"
+
+[[edge_functions]]
+  function = "pinata"
+  path = "/presigned_url/*"
+  
+[[edge_functions]]
+  function = "pinata"
+  path = "/groupByName/*"
+
+[[edge_functions]]
   function = "index"
-  path = "/*"
+  path = "/"
+
+[[edge_functions]]
+  function = "index"
+  path = "/alchemy/webhook"
+
+[[edge_functions]]
+  function = "index"
+  path = "/quicknode/webhook"
 
 [build.environment]
   # Environment variables for Edge Functions
