@@ -77,11 +77,11 @@ export async function generateJWT(address: string): Promise<string> {
 }
 
 /**
- * Decodes blockchain webhook data and extracts asset information
+ * Decodes blockchain webhook data and extracts asset information (Alchemy format)
  * @param webhookBody - The webhook body from the blockchain event
  * @returns Decoded asset data including assetCid, or null if not an AssetAdded event
  */
-export function decodeWebhookAssetData(webhookBody: any) {
+export function decodeAlchemyWebhookAssetData(webhookBody: any) {
   try {
     if (!webhookBody?.event?.data?.block?.logs || webhookBody.event.data.block.logs.length === 0) {
       return null
@@ -104,6 +104,52 @@ export function decodeWebhookAssetData(webhookBody: any) {
     }
   } catch (error) {
     console.error('Error decoding webhook data:', error)
+    return null
+  }
+}
+
+/**
+ * Decodes QuickNode webhook data and extracts asset information
+ * @param webhookBody - The webhook body from QuickNode
+ * @returns Decoded asset data including assetCid, or null if not an AssetAdded event
+ */
+export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
+  try {
+    if (!webhookBody?.matchingReceipts || webhookBody.matchingReceipts.length === 0) {
+      console.error('No matching receipts found in webhook body')
+      return null
+    }
+
+    const receipt = webhookBody.matchingReceipts[0]
+    if (!receipt?.logs || receipt.logs.length === 0) {
+      console.error('No logs found in receipt')
+      return null
+    }
+
+    // Try to find the AssetAdded event in the logs
+    for (const log of receipt.logs) {
+      try {
+        const decodedEvent = iface.parseLog({
+          topics: log.topics,
+          data: log.data
+        })
+        
+        if (decodedEvent && decodedEvent.name === 'AssetAdded') {
+          return {
+            assetCid: decodedEvent.args._assetCid,
+            author: decodedEvent.args._author
+          }
+        }
+      } catch (err) {
+        // Skip logs that don't match our ABI
+        continue
+      }
+    }
+
+    console.error('No AssetAdded event found in logs')
+    return null
+  } catch (error) {
+    console.error('Error decoding QuickNode webhook data:', error)
     return null
   }
 }

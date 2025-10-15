@@ -52,7 +52,11 @@
 
 [[edge_functions]]
   function = "index"
-  path = "/webhook"
+  path = "/alchemy/webhook"
+
+[[edge_functions]]
+  function = "index"
+  path = "/quicknode/webhook"
 
 [build.environment]
   # Environment variables for Edge Functions
