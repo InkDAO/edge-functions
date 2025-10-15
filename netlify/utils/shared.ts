@@ -9,6 +9,9 @@ declare const Deno: {
   }
 }
 
+// @ts-ignore - Deno specific import
+const crypto = globalThis.crypto
+
 // Create interface for decoding blockchain events
 const iface = new ethers.Interface(dXmaster_abi)
 
@@ -30,6 +33,111 @@ export const getPinataConfig = () => {
   })
   
   return { pinata }
+}
+
+export const getAlchemySigningKey = () => {
+  const signingKey = Deno.env.get('ALCHEMY_SIGNING_KEY')
+  if (!signingKey) {
+    throw new Error('Missing ALCHEMY_SIGNING_KEY environment variable')
+  }
+  return signingKey
+}
+
+export const getQuickNodeSecurityToken = () => {
+  const securityToken = Deno.env.get('QUICKNODE_SECURITY_TOKEN')
+  if (!securityToken) {
+    throw new Error('Missing QUICKNODE_SECURITY_TOKEN environment variable')
+  }
+  return securityToken
+}
+
+/**
+ * Validates Alchemy webhook signature using HMAC SHA256
+ * @param body - Raw request body as string
+ * @param signature - The X-Alchemy-Signature header value
+ * @param signingKey - Your Alchemy webhook signing key
+ * @returns true if signature is valid, false otherwise
+ */
+export async function validateAlchemySignature(
+  body: string,
+  signature: string,
+  signingKey: string
+): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder()
+    const keyData = encoder.encode(signingKey)
+    const bodyData = encoder.encode(body)
+    
+    // Import the key for HMAC
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    )
+    
+    // Generate the HMAC signature
+    const signature_buffer = await crypto.subtle.sign('HMAC', key, bodyData)
+    
+    // Convert to hex string
+    const hashArray = Array.from(new Uint8Array(signature_buffer))
+    const digest = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    
+    return signature === digest
+  } catch (error) {
+    console.error('Error validating Alchemy signature:', error)
+    return false
+  }
+}
+
+/**
+ * Validates QuickNode Streams webhook signature using HMAC SHA256
+ * Per QuickNode docs: signature = HMAC-SHA256(nonce + timestamp + payload, securityToken)
+ * @param body - Raw request body as string
+ * @param nonce - The X-QN-Nonce header value
+ * @param timestamp - The X-QN-Timestamp header value
+ * @param signature - The X-QN-Signature header value
+ * @param securityToken - Your QuickNode Stream security token
+ * @returns true if signature is valid, false otherwise
+ * @see https://www.quicknode.com/guides/quicknode-products/streams/validating-incoming-streams-webhook-messages
+ */
+export async function validateQuickNodeSignature(
+  body: string,
+  nonce: string,
+  timestamp: string,
+  signature: string,
+  securityToken: string
+): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder()
+    
+    // Combine nonce + timestamp + payload as per QuickNode documentation
+    const signatureData = nonce + timestamp + body
+    const keyData = encoder.encode(securityToken)
+    const messageData = encoder.encode(signatureData)
+    
+    // Import the key for HMAC
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    )
+    
+    // Generate the HMAC signature
+    const signature_buffer = await crypto.subtle.sign('HMAC', key, messageData)
+    
+    // Convert to hex string
+    const hashArray = Array.from(new Uint8Array(signature_buffer))
+    const computedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    
+    return signature === computedSignature
+  } catch (error) {
+    console.error('Error validating QuickNode signature:', error)
+    return false
+  }
 }
 
 export async function authenticateSignature(
