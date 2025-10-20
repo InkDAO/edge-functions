@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import { ethers } from 'ethers'
 import { cors } from 'hono/cors'
 import dXasset_abi from '../abis/dXasset.ts'
+import dXmaster_abi from '../abis/dXmaster.ts'
 import { provider } from '../utils/provider.ts'
+import { dxMasterAddress } from '../utils/constants.ts'
 import { deleteFile, getFileByCid } from '../utils/pinata.ts'
 import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
 
@@ -367,13 +369,19 @@ app.post('/delete/file', async (c) => {
   const salt = body.salt
   const address = body.address
   const signature = body.signature
-  
+  const cid = c.req.query('cid')
+
+  const dxMasterContract = new ethers.Contract(dxMasterAddress, dXmaster_abi, provider)
+  const assetAddress = await dxMasterContract.assetData(cid)
+  if (assetAddress !== ethers.ZeroAddress) {
+    return c.json({ error: 'File is published on chain' }, { status: 400 })
+  }
+
   const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
   if (!isAuthenticated) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
   }
 
-  const cid = c.req.query('cid')
   const file = await getFileByCid(cid as string, address.toLowerCase())
   if (!file) {
     return c.json({ error: 'No file found' }, { status: 404 })

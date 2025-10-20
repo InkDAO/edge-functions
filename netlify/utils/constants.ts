@@ -1,0 +1,1 @@
+export const dxMasterAddress = "0x332eac90e80dd8a56eaf8fd156000087ce08d01c"

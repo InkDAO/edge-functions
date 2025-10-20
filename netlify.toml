@@ -39,23 +39,15 @@
   path = "/freeFileByAddress"
 
 [[edge_functions]]
-  function = "pinata"
-  path = "/presigned_url/*"
-  
-[[edge_functions]]
-  function = "pinata"
-  path = "/groupByName/*"
-
-[[edge_functions]]
   function = "index"
   path = "/"
 
 [[edge_functions]]
-  function = "index"
+  function = "webhook"
   path = "/webhook/alchemy/publish"
 
 [[edge_functions]]
-  function = "index"
+  function = "webhook"
   path = "/webhook/quicknode/publish"
 
 [[edge_functions]]
