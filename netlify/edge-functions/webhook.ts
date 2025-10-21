@@ -54,10 +54,15 @@ app.post('/webhook/alchemy/publish', async (c) => {
       
       const file = await getFileByCid(assetData.assetCid, assetData.author.toLowerCase())
       if (!file) {
+        // File is null - likely already marked as "onchain" by another webhook
+        // This is not an error, the intended outcome has already been achieved
+        console.log('ℹ️ File already processed by another webhook')
         return c.json({
-          success: false,
-          error: 'No file found'
-        }, { status: 404 })
+          success: true,
+          message: "File already marked as onchain",
+          assetCid: assetData.assetCid || null,
+          timestamp: new Date().toISOString()
+        }, { status: 200 })
       }
   
       const { pinata } = getPinataConfig()
@@ -132,10 +137,15 @@ app.post('/webhook/quicknode/publish', async (c) => {
       
       const file = await getFileByCid(assetData.assetCid, assetData.author.toLowerCase())
       if (!file) {
+        // File is null - likely already marked as "onchain" by another webhook
+        // This is not an error, the intended outcome has already been achieved
+        console.log('ℹ️ File already processed by another webhook')
         return c.json({
-          success: false,
-          error: 'No file found'
-        }, { status: 404 })
+          success: true,
+          message: "File already marked as onchain",
+          assetCid: assetData.assetCid || null,
+          timestamp: new Date().toISOString()
+        }, { status: 200 })
       }
   
       const { pinata } = getPinataConfig()
