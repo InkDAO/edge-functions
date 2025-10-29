@@ -148,21 +148,8 @@ export async function authenticateSignature(
   if (!salt || !address || !signature) {
     return false
   }
-  
-  // Extract the "Issued At" timestamp from SIWE message
-  const issuedAtMatch = salt.match(/Issued At: (.+)/)
-  if (!issuedAtMatch) {
-    console.error('[auth] No "Issued At" field found in SIWE message')
-    return false
-  }
-  
-  const issuedAtStr = issuedAtMatch[1]
-  const issuedAtTimestamp = new Date(issuedAtStr).getTime() / 1000
-  const currentTimestamp = Date.now() / 1000
-  const timeDiff = currentTimestamp - issuedAtTimestamp
-  
-  // Check if message is older than 10 seconds or from the future (with 5 second tolerance for clock skew)
-  if (timeDiff > 10 || timeDiff < -5) {
+
+  if (Date.now() / 1000 - parseInt(salt) > 10) {
     return false
   }
   

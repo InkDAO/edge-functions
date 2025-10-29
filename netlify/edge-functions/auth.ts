@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { authenticateSignature, generateJWT, corsOptions } from '../utils/shared.ts'
+import { generateJWT, corsOptions } from '../utils/shared.ts'
+import { verifyMessage } from 'ethers'
 
 const app = new Hono()
 
@@ -26,6 +27,41 @@ app.post('/auth/login', async (c) => {
     expiresIn: '2h'
   }, { status: 200 })
 })
+
+async function authenticateSignature(
+  salt: string,
+  signature: string,
+  address: string
+): Promise<boolean> {
+  if (!salt || !address || !signature) {
+    return false
+  }
+  
+  // Extract the "Issued At" timestamp from SIWE message
+  const issuedAtMatch = salt.match(/Issued At: (.+)/)
+  if (!issuedAtMatch) {
+    console.error('[auth] No "Issued At" field found in SIWE message')
+    return false
+  }
+  
+  const issuedAtStr = issuedAtMatch[1]
+  const issuedAtTimestamp = new Date(issuedAtStr).getTime() / 1000
+  const currentTimestamp = Date.now() / 1000
+  const timeDiff = currentTimestamp - issuedAtTimestamp
+  
+  // Check if message is older than 10 seconds or from the future (with 5 second tolerance for clock skew)
+  if (timeDiff > 10 || timeDiff < -5) {
+    return false
+  }
+  
+  try {
+    const recoveredAddr = verifyMessage(salt, signature);
+    return recoveredAddr.toLowerCase() === address.toLowerCase()
+  } catch (err) {
+    console.error('Signature verification error:', err)
+    return false
+  }
+}
 
 export default app.fetch
 
