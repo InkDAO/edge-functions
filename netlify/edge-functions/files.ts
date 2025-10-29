@@ -211,6 +211,8 @@ app.post('/publish/file', async (c) => {
     const salt = formData.get('salt') as string
     const address = formData.get('address') as string
     const signature = formData.get('signature') as string
+    const hashtags = formData.get('hashtags') as string
+    const hashtagsArray = hashtags.split(',').map(tag => tag.trim().toLowerCase());
 
     if (!thumbnail) {
       return c.json({ error: 'File is required' }, { status: 400 })
@@ -228,6 +230,18 @@ app.post('/publish/file', async (c) => {
     if (!file) {
       return c.json({ error: 'No file found' }, { status: 404 })
     }
+
+    const keyvalues = hashtagsArray.reduce((acc, tag) => {
+      acc[tag] = tag;
+      return acc;
+    }, {} as Record<string, string>);
+
+    const logvalues = await pinata.files.private.update({id: file.id,
+      keyvalues: {
+        ...keyvalues,
+      }
+    })
+    console.log('logvalues', logvalues)
 
     // Upload file with name "thumbnail.png"
     const upload = await pinata.upload.public
@@ -278,7 +292,7 @@ app.get('/pendingFilesByOwner', async (c) => {
  * jwt token is required for this request.
  * return the files data by next page token
  */
-app.get('/filesByOwnerByNextPageToken', async (c) => {
+app.get('/filesByNextPageToken', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return c.json({ error: 'JWT token required' }, { status: 401 })
@@ -288,11 +302,6 @@ app.get('/filesByOwnerByNextPageToken', async (c) => {
   const jwtPayload = await verifyJWT(token)
   if (!jwtPayload) {
     return c.json({ error: 'Invalid or expired token' }, { status: 401 })
-  }
-
-  const requestedOwner = c.req.query('owner')?.toLowerCase()
-  if (!requestedOwner) {
-    return c.json({ error: 'Owner parameter is required' }, { status: 400 })
   }
 
   const { pinata } = getPinataConfig()
@@ -434,8 +443,14 @@ app.get('/freeFileByAddress', async (c) => {
   }
 })
 
-export default app.fetch
+app.get('/allFileMetaData', async (c) => {
+  const { pinata } = getPinataConfig()
+  const files = await pinata.files.private.list().limit(9)
+  return c.json(files, { status: 200 })
+})
 
+export default app.fetch
 export const config = {
-  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByOwnerByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress"]
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress", "/allFileMetaData"]
 }
+

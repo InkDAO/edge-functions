@@ -17,6 +17,10 @@
 [[edge_functions]]
   function = "files"
   path = "/update/file"
+
+[[edge_functions]]
+  function = "files"
+  path = "/publish/file"
   
 [[edge_functions]]
   function = "files"
@@ -24,7 +28,7 @@
   
 [[edge_functions]]
   function = "files"
-  path = "/filesByOwnerByNextPageToken"
+  path = "/filesByNextPageToken"
   
 [[edge_functions]]
   function = "files"
@@ -37,6 +41,10 @@
 [[edge_functions]]
   function = "files"
   path = "/freeFileByAddress"
+
+[[edge_functions]]
+  function = "files"
+  path = "/allFileMetaData"
 
 [[edge_functions]]
   function = "index"
