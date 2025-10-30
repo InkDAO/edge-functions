@@ -68,12 +68,13 @@ app.get('/filesByTags', async (c) => {
   }, {} as Record<string, string>);
   
   try {
-    const files = await pinata.files.private.list().keyvalues(keyvalues)
+    const files = await pinata.files.private.list().keyvalues(keyvalues).limit(9)
 
     return c.json({ 
       files: files.files || [],
       count: files.files.length || 0,
-      tags: tagArray
+      tags: tagArray,
+      next_page_token: files.next_page_token || null
     }, { status: 200 })
   } catch (error) {
     console.error('Error filtering files by multiple tags:', error)
@@ -239,6 +240,7 @@ app.post('/publish/file', async (c) => {
     const logvalues = await pinata.files.private.update({id: file.id,
       keyvalues: {
         ...keyvalues,
+        publishedAt: new Date().toISOString(),
       }
     })
     console.log('logvalues', logvalues)
