@@ -295,17 +295,6 @@ app.get('/pendingFilesByOwner', async (c) => {
  * return the files data by next page token
  */
 app.get('/filesByNextPageToken', async (c) => {
-  const authHeader = c.req.header('Authorization')
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ error: 'JWT token required' }, { status: 401 })
-  }
-
-  const token = authHeader.substring(7)
-  const jwtPayload = await verifyJWT(token)
-  if (!jwtPayload) {
-    return c.json({ error: 'Invalid or expired token' }, { status: 401 })
-  }
-
   const { pinata } = getPinataConfig()
 
   const nextPageToken = c.req.query('next_page_token')
@@ -445,14 +434,21 @@ app.get('/freeFileByAddress', async (c) => {
   }
 })
 
-app.get('/allFileMetaData', async (c) => {
+app.get('/filesMetaData', async (c) => {
   const { pinata } = getPinataConfig()
-  const files = await pinata.files.private.list().limit(9)
+  
+  const cid = c.req.query('cid')
+  let files: any = []
+  if (cid) {
+    files = await pinata.files.private.list().cid(cid as string)
+  } else {
+    files = await pinata.files.private.list().limit(9)
+  }
+
   return c.json(files, { status: 200 })
 })
 
 export default app.fetch
 export const config = {
-  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress", "/allFileMetaData"]
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress", "/filesMetaData"]
 }
-

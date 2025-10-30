@@ -44,7 +44,7 @@
 
 [[edge_functions]]
   function = "files"
-  path = "/allFileMetaData"
+  path = "/filesMetaData"
 
 [[edge_functions]]
   function = "index"
