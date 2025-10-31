@@ -49,8 +49,8 @@ async function authenticateSignature(
   const currentTimestamp = Date.now() / 1000
   const timeDiff = currentTimestamp - issuedAtTimestamp
   
-  // Check if message is older than 10 seconds or from the future (with 5 second tolerance for clock skew)
-  if (timeDiff > 10 || timeDiff < -5) {
+  // Check if message is older than 60 seconds
+  if (timeDiff > 60) {
     return false
   }
   

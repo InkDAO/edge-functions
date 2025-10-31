@@ -149,7 +149,7 @@ export async function authenticateSignature(
     return false
   }
 
-  if (Date.now() / 1000 - parseInt(salt) > 10) {
+  if (Date.now() / 1000 - parseInt(salt) > 60) {
     return false
   }
   
