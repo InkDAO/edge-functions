@@ -8,7 +8,8 @@
   "dependencies": {
     "ethers": "^6.15.0",
     "hono": "^4.9.4",
-    "pinata": "^2.5.0"
+    "pinata": "^2.5.0",
+    "viem": "^2.21.54"
   },
   "devDependencies": {
     "netlify-cli": "^17.0.0"

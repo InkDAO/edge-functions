@@ -7,6 +7,7 @@ import { provider } from '../utils/provider.ts'
 import { dxMasterAddress } from '../utils/constants.ts'
 import { deleteFile, getFileByCid } from '../utils/pinata.ts'
 import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
+import { verifyTypedData } from "viem";
 
 const app = new Hono()
 
@@ -97,14 +98,25 @@ app.post('/create/group', async (c) => {
   const signature = body.signature
   const content = body.content || "Initial Empty Json"
 
-  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  if (!isAuthenticated) {
+  const verified = await verifyTypedData({
+    address: address as `0x${string}`,
+    domain: salt.domain,
+    types: salt.types,
+    primaryType: 'CreateFile',
+    message: salt.message,
+    signature: signature as `0x${string}`,
+  });
+  if (!verified) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  if (Date.now() / 1000 - parseInt(salt.message.timestamp) > 60) {
+    return c.json({ error: 'Timestamp expired' }, { status: 401 })
   }
   
   const { pinata } = getPinataConfig()
 
-  const groupName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
+  const groupName = `${salt.message.nonce}`
   const group = await pinata.groups.private.create({
     name: groupName,
   })
@@ -151,9 +163,20 @@ app.post('/update/file', async (c) => {
   const signature = body.signature
   const content = body.content
 
-  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  if (!isAuthenticated) {
+  const verified = await verifyTypedData({
+    address: address as `0x${string}`,
+    domain: salt.domain,
+    types: salt.types,
+    primaryType: 'UpdateFile',
+    message: salt.message,
+    signature: signature as `0x${string}`,
+  });
+  if (!verified) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  if (Date.now() / 1000 - parseInt(salt.message.timestamp) > 60) {
+    return c.json({ error: 'Timestamp expired' }, { status: 401 })
   }
 
   const { pinata } = getPinataConfig()
@@ -165,14 +188,14 @@ app.post('/update/file', async (c) => {
       return c.json({ error: 'No file found' }, { status: 404 })
     }
 
-    if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
-      return c.json({ error: 'File already exists' }, { status: 400 })
+    if (file.name === `${salt.message.nonce}`) {
+      return c.json({ error: 'File already updated' }, { status: 400 })
     }
 
     await deleteFile(file.id)
 
     try {
-      const fileName = `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`
+      const fileName = `${salt.message.nonce}`
       const upload = await pinata.upload.private
       .json({
         content: content,
@@ -209,7 +232,8 @@ app.post('/publish/file', async (c) => {
   try {
     const formData = await c.req.formData()
     const thumbnail = formData.get('file') as File // thumbnail.png
-    const salt = formData.get('salt') as string
+    const saltString = formData.get('salt') as string
+    const salt = JSON.parse(saltString)
     const address = formData.get('address') as string
     const signature = formData.get('signature') as string
     const hashtags = formData.get('hashtags') as string
@@ -219,9 +243,20 @@ app.post('/publish/file', async (c) => {
       return c.json({ error: 'File is required' }, { status: 400 })
     }
 
-    const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-    if (!isAuthenticated) {
+    const verified = await verifyTypedData({
+      address: address as `0x${string}`,
+      domain: salt.domain,
+      types: salt.types,
+      primaryType: 'PublishFile',
+      message: salt.message,
+      signature: signature as `0x${string}`,
+    });
+    if (!verified) {
       return c.json({ error: 'Authentication failed' }, { status: 401 })
+    }
+  
+    if (Date.now() / 1000 - parseInt(salt.message.timestamp) > 60) {
+      return c.json({ error: 'Timestamp expired' }, { status: 401 })
     }
 
     const { pinata } = getPinataConfig()
@@ -237,13 +272,12 @@ app.post('/publish/file', async (c) => {
       return acc;
     }, {} as Record<string, string>);
 
-    const logvalues = await pinata.files.private.update({id: file.id,
+    await pinata.files.private.update({id: file.id,
       keyvalues: {
         ...keyvalues,
         publishedAt: new Date().toISOString(),
       }
     })
-    console.log('logvalues', logvalues)
 
     // Upload file with name "thumbnail.png"
     const upload = await pinata.upload.public
@@ -377,9 +411,20 @@ app.post('/delete/file', async (c) => {
     return c.json({ error: 'File is published on chain' }, { status: 400 })
   }
 
-  const isAuthenticated = await authenticateSignature(salt as string, signature as string, address as string)
-  if (!isAuthenticated) {
+  const verified = await verifyTypedData({
+    address: address as `0x${string}`,
+    domain: salt.domain,
+    types: salt.types,
+    primaryType: 'DeleteFile',
+    message: salt.message,
+    signature: signature as `0x${string}`,
+  });
+  if (!verified) {
     return c.json({ error: 'Authentication failed' }, { status: 401 })
+  }
+
+  if (Date.now() / 1000 - parseInt(salt.message.timestamp) > 60) {
+    return c.json({ error: 'Timestamp expired' }, { status: 401 })
   }
 
   const file = await getFileByCid(cid as string, address.toLowerCase())
@@ -387,8 +432,8 @@ app.post('/delete/file', async (c) => {
     return c.json({ error: 'No file found' }, { status: 404 })
   }
 
-  if (file.name === `${address.slice(2,41).toLowerCase()}_${salt.slice(-10).toLowerCase()}`) {
-    return c.json({ error: 'File already exists' }, { status: 400 })
+  if (file.name === `${salt.message.nonce}`) {
+    return c.json({ error: 'File already deleted' }, { status: 400 })
   }
 
   const deletedFile = await deleteFile(file.id)
