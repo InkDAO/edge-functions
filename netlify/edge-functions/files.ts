@@ -407,7 +407,7 @@ app.post('/delete/file', async (c) => {
 
   const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
   const postId = await marketplaceContract.postCidToTokenId(cid)
-  if (postId !== 0) {
+  if (postId !== 0n) {
     return c.json({ error: 'File is published on chain' }, { status: 400 })
   }
 
