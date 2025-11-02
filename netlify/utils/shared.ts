@@ -1,7 +1,7 @@
 import { verifyMessage, ethers } from 'ethers'
 import { sign, verify } from 'hono/jwt'
 import { PinataSDK } from 'pinata'
-import dXmaster_abi from '../abis/dXmaster.ts'
+import { marketplace_abi } from '../abis/marketPlace.ts'
 
 declare const Deno: {
   env: {
@@ -13,7 +13,7 @@ declare const Deno: {
 const crypto = globalThis.crypto
 
 // Create interface for decoding blockchain events
-const iface = new ethers.Interface(dXmaster_abi)
+const iface = new ethers.Interface(marketplace_abi)
 
 export const getJwtSecret = () => {
   return Deno.env.get('SECRET_KEY') as string
@@ -140,28 +140,6 @@ export async function validateQuickNodeSignature(
   }
 }
 
-export async function authenticateSignature(
-  salt: string,
-  signature: string,
-  address: string
-): Promise<boolean> {
-  if (!salt || !address || !signature) {
-    return false
-  }
-
-  if (Date.now() / 1000 - parseInt(salt) > 60) {
-    return false
-  }
-  
-  try {
-    const recoveredAddr = verifyMessage(salt, signature);
-    return recoveredAddr.toLowerCase() === address.toLowerCase()
-  } catch (err) {
-    console.error('Signature verification error:', err)
-    return false
-  }
-}
-
 export async function verifyJWT(token: string): Promise<{ address: string } | null> {
   try {
     const payload = await verify(token, getJwtSecret())
@@ -202,13 +180,14 @@ export function decodeAlchemyWebhookAssetData(webhookBody: any) {
       data: log.data
     })
     
-    if (!decodedEvent || decodedEvent.name !== 'AssetAdded') {
+    if (!decodedEvent || decodedEvent.name !== 'PostCreated') {
       return null
     }
 
     return {
-      assetCid: decodedEvent.args._assetCid,
-      author: decodedEvent.args._author
+      postCid: decodedEvent.args.postCid,
+      postId: decodedEvent.args.tokenId,
+      author: decodedEvent.args.author
     }
   } catch (error) {
     console.error('Error decoding webhook data:', error)
@@ -219,7 +198,7 @@ export function decodeAlchemyWebhookAssetData(webhookBody: any) {
 /**
  * Decodes QuickNode webhook data and extracts asset information
  * @param webhookBody - The webhook body from QuickNode
- * @returns Decoded asset data including assetCid, or null if not an AssetAdded event
+ * @returns Decoded asset data including postCid, or null if not an PostCreated event
  */
 export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
   try {
@@ -242,10 +221,11 @@ export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
           data: log.data
         })
         
-        if (decodedEvent && decodedEvent.name === 'AssetAdded') {
+        if (decodedEvent && decodedEvent.name === 'PostCreated') {
           return {
-            assetCid: decodedEvent.args._assetCid,
-            author: decodedEvent.args._author
+            postCid: decodedEvent.args.postCid,
+            postId: decodedEvent.args.tokenId,
+            author: decodedEvent.args.author
           }
         }
       } catch (err) {
@@ -254,7 +234,7 @@ export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
       }
     }
 
-    console.error('No AssetAdded event found in logs')
+    console.error('No PostCreated event found in logs')
     return null
   } catch (error) {
     console.error('Error decoding QuickNode webhook data:', error)

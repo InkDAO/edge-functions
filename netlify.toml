@@ -36,11 +36,11 @@
 
 [[edge_functions]]
   function = "files"
-  path = "/fileByAssetAddress"
+  path = "/fileByPostId"
 
 [[edge_functions]]
   function = "files"
-  path = "/freeFileByAddress"
+  path = "/freeFileByPostId"
 
 [[edge_functions]]
   function = "files"

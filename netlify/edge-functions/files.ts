@@ -1,12 +1,11 @@
 import { Hono } from 'hono'
 import { ethers } from 'ethers'
 import { cors } from 'hono/cors'
-import dXasset_abi from '../abis/dXasset.ts'
-import dXmaster_abi from '../abis/dXmaster.ts'
+import { marketplace_abi } from '../abis/marketPlace.ts'
 import { provider } from '../utils/provider.ts'
-import { dxMasterAddress } from '../utils/constants.ts'
+import { marketplaceAddress } from '../utils/constants.ts'
 import { deleteFile, getFileByCid } from '../utils/pinata.ts'
-import { authenticateSignature, verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
+import { verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
 import { verifyTypedData } from "viem";
 
 const app = new Hono()
@@ -345,7 +344,7 @@ app.get('/filesByNextPageToken', async (c) => {
  * - if the user is the author of the dXasset token
  * return the file data
  */
-app.get('/fileByAssetAddress', async (c) => {
+app.get('/fileByPostId', async (c) => {
   const authHeader = c.req.header('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return c.json({ error: 'JWT token required' }, { status: 401 })
@@ -362,25 +361,26 @@ app.get('/fileByAssetAddress', async (c) => {
     return c.json({ error: 'user parameter is required' }, { status: 400 })
   }
 
-  const dXassetAddress = c.req.query('assetAddress')
-  if (!dXassetAddress) {
-    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+  const postId = c.req.query('postId')
+  if (!postId) {
+    return c.json({ error: 'Post ID parameter is required' }, { status: 400 })
   }
 
   try {
-    const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
-    const balance = await dXassetContract.balanceOf(requestedUser)
-    const author = await dXassetContract.owner()
+    const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+    const balance = await marketplaceContract.balanceOf(requestedUser, postId)
+    const postInfo = await marketplaceContract.getPostInfo(postId)
+    const author = postInfo.author
     if (author.toLowerCase() !== requestedUser.toLowerCase() && balance == 0) {
-      return c.json({ error: 'Unauthorized: Do not have dXasset' }, { status: 404 })
+      return c.json({ error: 'Unauthorized: Do not have post' }, { status: 404 })
     }
 
-    const assetCid = await dXassetContract.assetCid()
+    const postCid = postInfo.postCid
   
     const { pinata } = getPinataConfig()
   
     const { data } = await pinata.gateways.private.get(
-      assetCid as string
+      postCid as string
     )
   
     return c.json(data, { status: 200 })
@@ -405,9 +405,9 @@ app.post('/delete/file', async (c) => {
   const signature = body.signature
   const cid = c.req.query('cid')
 
-  const dxMasterContract = new ethers.Contract(dxMasterAddress, dXmaster_abi, provider)
-  const assetAddress = await dxMasterContract.assetData(cid)
-  if (assetAddress !== ethers.ZeroAddress) {
+  const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+  const postId = await marketplaceContract.postCidToTokenId(cid)
+  if (postId !== 0) {
     return c.json({ error: 'File is published on chain' }, { status: 400 })
   }
 
@@ -451,25 +451,23 @@ app.post('/delete/file', async (c) => {
  * no digital signature is required for this request.
  * return the file data
  */
-app.get('/freeFileByAddress', async (c) => {
-  const dXassetAddress = c.req.query('assetAddress')
-  if (!dXassetAddress) {
-    return c.json({ error: 'Asset address parameter is required' }, { status: 400 })
+app.get('/freeFileByPostId', async (c) => {
+  const postId = c.req.query('postId')
+  if (!postId) {
+    return c.json({ error: 'Post ID parameter is required' }, { status: 400 })
   }
 
   try {
-    const dXassetContract = new ethers.Contract(dXassetAddress, dXasset_abi, provider)
-    const price = await dXassetContract.costInNativeInWei()
-    if (price > 0) {
+    const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+    const postInfo = await marketplaceContract.postInfo(postId)
+    if (postInfo.priceInNative > 0) {
       return c.json({ error: 'File is not free' }, { status: 400 })
     }
-
-    const assetCid = await dXassetContract.assetCid()
   
     const { pinata } = getPinataConfig()
   
     const { data } = await pinata.gateways.private.get(
-      assetCid as string
+      postInfo.postCid as string
     )
   
     return c.json(data, { status: 200 })
@@ -495,5 +493,5 @@ app.get('/filesMetaData', async (c) => {
 
 export default app.fetch
 export const config = {
-  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByNextPageToken", "/delete/file", "/fileByAssetAddress", "/freeFileByAddress", "/filesMetaData"]
+  path: ["/fileByCid", "/filesByTags", "/create/group", "/update/file", "/publish/file", "/pendingFilesByOwner", "/filesByNextPageToken", "/delete/file", "/fileByPostId", "/freeFileByPostId", "/filesMetaData"]
 }

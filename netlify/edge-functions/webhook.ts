@@ -50,9 +50,9 @@ app.post('/webhook/alchemy/publish', async (c) => {
         }, { status: 400 })
       }
       console.log('✅ Authenticated webhook from Alchemy')
-      console.log('🔔 New Blockchain Event Received from Alchemy', assetData.assetCid, assetData.author)
+      console.log('🔔 New Blockchain Event Received from Alchemy', assetData.postCid, assetData.author)
       
-      const file = await getFileByCid(assetData.assetCid, assetData.author.toLowerCase())
+      const file = await getFileByCid(assetData.postCid, assetData.author.toLowerCase())
       if (!file) {
         // File is null - likely already marked as "onchain" by another webhook
         // This is not an error, the intended outcome has already been achieved
@@ -60,7 +60,7 @@ app.post('/webhook/alchemy/publish', async (c) => {
         return c.json({
           success: true,
           message: "File already marked as onchain",
-          assetCid: assetData.assetCid || null,
+          postCid: assetData.postCid || null,
           timestamp: new Date().toISOString()
         }, { status: 200 })
       }
@@ -75,7 +75,7 @@ app.post('/webhook/alchemy/publish', async (c) => {
       return c.json({
         success: true,
         message: "Webhook received successfully",
-        assetCid: assetData.assetCid || null,
+        postCid: assetData.postCid || null,
         timestamp: new Date().toISOString()
       }, { status: 200 })
     } catch (error) {
@@ -133,9 +133,9 @@ app.post('/webhook/quicknode/publish', async (c) => {
         }, { status: 400 })
       }
       console.log('✅ Authenticated webhook from QuickNode')
-      console.log('🔔 New Blockchain Event Received from QuickNode', assetData.assetCid, assetData.author)
+      console.log('🔔 New Blockchain Event Received from QuickNode', assetData.postCid, assetData.postId)
       
-      const file = await getFileByCid(assetData.assetCid, assetData.author.toLowerCase())
+      const file = await getFileByCid(assetData.postCid, assetData.author.toLowerCase())
       if (!file) {
         // File is null - likely already marked as "onchain" by another webhook
         // This is not an error, the intended outcome has already been achieved
@@ -143,7 +143,7 @@ app.post('/webhook/quicknode/publish', async (c) => {
         return c.json({
           success: true,
           message: "File already marked as onchain",
-          assetCid: assetData.assetCid || null,
+          postCid: assetData.postCid || null,
           timestamp: new Date().toISOString()
         }, { status: 200 })
       }
@@ -158,7 +158,7 @@ app.post('/webhook/quicknode/publish', async (c) => {
       return c.json({
         success: true,
         message: "Webhook received successfully",
-        assetCid: assetData.assetCid || null,
+        postCid: assetData.postCid || null,
         timestamp: new Date().toISOString()
       }, { status: 200 })
     } catch (error) {
