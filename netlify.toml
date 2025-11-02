@@ -59,8 +59,12 @@
   path = "/webhook/quicknode/publish"
 
 [[edge_functions]]
-  function = "landingPage"
-  path = "/landingPage"
+  function = "metrics"
+  path = "/globalMetrics"
+
+[[edge_functions]]
+  function = "metrics"
+  path = "/userMetrics"
 
 [build.environment]
   # Environment variables for Edge Functions
