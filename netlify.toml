@@ -66,6 +66,10 @@
   function = "metrics"
   path = "/userMetrics"
 
+[[edge_functions]]
+  function = "metrics"
+  path = "/heatmap"
+
 [build.environment]
   # Environment variables for Edge Functions
   # Note: You need to set these in Netlify's dashboard or via CLI

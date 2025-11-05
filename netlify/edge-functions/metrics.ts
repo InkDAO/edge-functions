@@ -7,7 +7,7 @@ const app = new Hono()
 // Add CORS middleware
 app.use('*', cors(corsOptions))
 
-const GRAPH_API_URL = 'https://api.studio.thegraph.com/query/1685715/decentralizedx-analytics/version/latest'
+const GRAPH_API_URL = 'https://api.goldsky.com/api/public/project_cm82n7wjrfuil01yg9f4t0e8o/subgraphs/InkDAO-Analytics/0.0.1/gn'
 
 app.get('/globalMetrics', async (c) => {
   try {
@@ -178,8 +178,114 @@ app.get('/userMetrics', async (c) => {
   }
 })
 
+app.get('/heatmap', async (c) => {
+  const userAddress = c.req.query('userAddress')
+  if (!userAddress) {
+    return c.json({
+      statusCode: 400,
+      error: 'userAddress parameter is required',
+    }, { status: 400 })
+  }
+  
+  try {
+
+    const creatorQuery = `
+      query MyQuery {
+        creator(id: "${userAddress}") {
+          assets {
+            createdAt
+          }
+        }
+      }
+    `
+
+    const holderQuery = `
+      query MyQuery {
+        holder(id: "${userAddress}") {
+          subscription {
+            subscribedAt
+          }
+        }
+      }
+    `
+
+    const creatorResponse = await fetch(GRAPH_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: creatorQuery }),
+    })
+
+    if (!creatorResponse.ok) {
+      return c.json({
+        statusCode: creatorResponse.status,
+        error: 'Failed to fetch data from GraphQL API',
+        message: `API responded with status: ${creatorResponse.status}`,
+      }, { status: 502 })
+    }
+
+    const holderResponse = await fetch(GRAPH_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: holderQuery }),
+    })
+
+    if (!holderResponse.ok) {
+      return c.json({
+        statusCode: holderResponse.status,
+        error: 'Failed to fetch data from GraphQL API',
+        message: `API responded with status: ${holderResponse.status}`,
+      }, { status: 502 })
+    }
+
+    const creatorResult = await creatorResponse.json()
+    const holderResult = await holderResponse.json()
+
+    if (creatorResult.errors || holderResult.errors) {
+      return c.json({
+        statusCode: 500,
+        error: 'GraphQL query failed',
+        details: creatorResult.errors || holderResult.errors,
+      }, { status: 500 })
+    }
+
+    const creatorData = creatorResult.data?.creator
+    const holderData = holderResult.data?.holder
+
+    console.log(creatorData);
+    console.log(holderData);
+
+    // Convert timestamps to date/month/year format
+    const formatTimestamp = (timestamp: string) => {
+      const date = new Date(parseInt(timestamp) * 1000)
+      const day = date.getDate()
+      const month = date.getMonth() + 1
+      const year = date.getFullYear()
+      return `${day}/${month}/${year}`
+    }
+
+    return c.json({
+      statusCode: 200,
+      data: {
+        creator: creatorData?.assets?.map((asset: any) => formatTimestamp(asset.createdAt)) || [],
+        holder: holderData?.subscription?.map((sub: any) => formatTimestamp(sub.subscribedAt)) || [],
+      },
+    }, { status: 200 })
+
+  } catch (error) {
+    return c.json({
+      statusCode: 500,
+      error: 'Failed to fetch heat map',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    }, { status: 500 })
+  }
+})
+
 export default app.fetch
 
 export const config = {
-    path: ["/globalMetrics", "/userMetrics"]
+    path: ["/globalMetrics", "/userMetrics", "/heatmap"]
 }
