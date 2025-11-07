@@ -7,7 +7,7 @@ const app = new Hono()
 // Add CORS middleware
 app.use('*', cors(corsOptions))
 
-const GRAPH_API_URL = 'https://api.goldsky.com/api/public/project_cm82n7wjrfuil01yg9f4t0e8o/subgraphs/InkDAO-Analytics/0.0.1/gn'
+const GRAPH_API_URL = 'https://api.goldsky.com/api/public/project_cmhoc42eyqwf101z818rh6knp/subgraphs/InkDAO/prod/gn'
 
 app.get('/globalMetrics', async (c) => {
   try {
