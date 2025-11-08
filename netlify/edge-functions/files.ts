@@ -4,7 +4,7 @@ import { cors } from 'hono/cors'
 import { marketplace_abi } from '../abis/marketPlace.ts'
 import { provider } from '../utils/provider.ts'
 import { marketplaceAddress } from '../utils/constants.ts'
-import { deleteFile, getFileByCid } from '../utils/pinata.ts'
+import { deleteFile, getFileByCid, createFile } from '../utils/pinata.ts'
 import { verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
 import { verifyTypedData } from "viem";
 
@@ -120,24 +120,18 @@ app.post('/create/group', async (c) => {
     name: groupName,
   })
 
+
   try {
-    let upload = await pinata.upload.private
+    let updatedUpload = await pinata.upload.private
     .json({
       content: content,
       lang: "ts"
     })
-    .group(group.id)
-    .name(groupName)
-    .keyvalues({
-      owner: address.toLowerCase(),
-      status: "pending",
-    })
 
-    let updatedUpload = await pinata.files.private.update({id: upload.id,
-      keyvalues: {
-        status: "pending",
-      }
-    })
+    const isSuccess = await createFile(updatedUpload.id, updatedUpload.cid, groupName, group.id, address);
+    if (!isSuccess) {
+      await deleteFile(updatedUpload.id)
+    }
 
     return c.json({ updatedUpload }, { status: 200 })
   } catch (error) {
@@ -195,17 +189,16 @@ app.post('/update/file', async (c) => {
 
     try {
       const fileName = `${salt.message.nonce}`
-      const upload = await pinata.upload.private
+      let upload = await pinata.upload.private
       .json({
         content: content,
         lang: "ts"
       })
-      .group(file.group_id as string)
-      .name(fileName)
-      .keyvalues({
-        owner: address.toLowerCase(),
-        status: "pending",
-      })
+
+      const isSuccess = await createFile(upload.id, upload.cid, fileName, file.group_id, address);
+      if (!isSuccess) {
+        await deleteFile(upload.id)
+      }
 
       return c.json({ upload }, { status: 200 })
     } catch (error) {

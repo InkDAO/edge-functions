@@ -255,9 +255,6 @@ app.get('/heatmap', async (c) => {
     const creatorData = creatorResult.data?.creator
     const holderData = holderResult.data?.holder
 
-    console.log(creatorData);
-    console.log(holderData);
-
     // Convert timestamps to date/month/year format
     const formatTimestamp = (timestamp: string) => {
       const date = new Date(parseInt(timestamp) * 1000)

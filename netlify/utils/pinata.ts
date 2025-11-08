@@ -1,4 +1,8 @@
+import { ethers } from 'ethers'
 import { getPinataConfig } from './shared.ts'
+import { marketplace_abi } from '../abis/marketPlace.ts'
+import { provider } from './provider.ts'
+import { marketplaceAddress } from './constants.ts'
 
 export const deleteFile = async (fileId: string) => {
   const { pinata } = getPinataConfig()
@@ -39,4 +43,31 @@ export const getFileByCid = async (cid: string, authorizedAddress: string) => {
     console.error('File get error:', error)
     return null
   }
+}
+
+export const createFile = async (fileId: string, fileCid: string, fileName: string, groupId: any, author: string) => {
+  const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+  const postId = await marketplaceContract.postCidToTokenId(fileCid)
+  if (postId !== 0n) {
+    return false;
+  }
+
+  const { pinata } = getPinataConfig()
+
+  await pinata.files.private.update({id: fileId,
+    name: fileName,
+    keyvalues: {
+      owner: author.toLowerCase(),
+      status: "pending",
+    }
+  })
+
+  await pinata.groups.private.addFiles({
+    groupId: groupId,
+    files: [
+      fileId,
+    ],
+  });
+
+  return true;
 }
