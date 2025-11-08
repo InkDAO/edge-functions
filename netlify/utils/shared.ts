@@ -249,7 +249,7 @@ export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
 
 
 export const corsOptions = {
-  origin: ['http://localhost:8080', 'https://inkdao.tech', 'https://staging.inkdao.tech', 'https://decentralizedx.tech', 'https://staging.decentralizedx.tech'],
+  origin: ['http://localhost:8080', 'https://inkdao.tech', 'https://staging.inkdao.tech'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
   allowMethods: ['GET', 'POST'],
   exposeHeaders: ['Content-Length', 'Content-Type', 'Authorization'],
