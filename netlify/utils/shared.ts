@@ -1,4 +1,4 @@
-import { verifyMessage, ethers } from 'ethers'
+import { ethers } from 'ethers'
 import { sign, verify } from 'hono/jwt'
 import { PinataSDK } from 'pinata'
 import { marketplace_abi } from '../abis/marketPlace.ts'
@@ -17,6 +17,10 @@ const iface = new ethers.Interface(marketplace_abi)
 
 export const getJwtSecret = () => {
   return Deno.env.get('SECRET_KEY') as string
+}
+
+export const getMarketplaceAddress = () => {
+  return Deno.env.get('MARKETPLACE_ADDRESS') as string
 }
 
 export const getPinataConfig = () => {
