@@ -2,7 +2,7 @@ import { ethers } from 'ethers'
 import { getPinataConfig } from './shared.ts'
 import { marketplace_abi } from '../abis/marketPlace.ts'
 import { provider } from './provider.ts'
-import { marketplaceAddress } from './constants.ts'
+import { getMarketplaceAddress } from './shared.ts'
 
 export const deleteFile = async (fileId: string) => {
   const { pinata } = getPinataConfig()
@@ -46,7 +46,7 @@ export const getFileByCid = async (cid: string, authorizedAddress: string) => {
 }
 
 export const createFile = async (fileId: string, fileCid: string, fileName: string, groupId: any, author: string) => {
-  const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+  const marketplaceContract = new ethers.Contract(getMarketplaceAddress(), marketplace_abi, provider)
   const postId = await marketplaceContract.postCidToTokenId(fileCid)
   if (postId !== 0n) {
     return false;

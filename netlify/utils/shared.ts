@@ -1,4 +1,4 @@
-import { verifyMessage, ethers } from 'ethers'
+import { ethers } from 'ethers'
 import { sign, verify } from 'hono/jwt'
 import { PinataSDK } from 'pinata'
 import { marketplace_abi } from '../abis/marketPlace.ts'
@@ -17,6 +17,10 @@ const iface = new ethers.Interface(marketplace_abi)
 
 export const getJwtSecret = () => {
   return Deno.env.get('SECRET_KEY') as string
+}
+
+export const getMarketplaceAddress = () => {
+  return Deno.env.get('MARKETPLACE_ADDRESS') as string
 }
 
 export const getPinataConfig = () => {
@@ -245,7 +249,7 @@ export function decodeQuickNodeWebhookAssetData(webhookBody: any) {
 
 
 export const corsOptions = {
-  origin: ['http://localhost:8080', 'https://inkdao.tech', 'https://decentralizedx.tech', 'https://v2.decentralizedx.tech', 'https://v3.decentralizedx.tech'],
+  origin: ['http://localhost:8080', 'https://inkdao.tech', 'https://staging.inkdao.tech', 'https://decentralizedx.tech', 'https://staging.decentralizedx.tech'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers'],
   allowMethods: ['GET', 'POST'],
   exposeHeaders: ['Content-Length', 'Content-Type', 'Authorization'],

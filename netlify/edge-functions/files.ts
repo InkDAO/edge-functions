@@ -3,9 +3,8 @@ import { ethers } from 'ethers'
 import { cors } from 'hono/cors'
 import { marketplace_abi } from '../abis/marketPlace.ts'
 import { provider } from '../utils/provider.ts'
-import { marketplaceAddress } from '../utils/constants.ts'
 import { deleteFile, getFileByCid, createFile } from '../utils/pinata.ts'
-import { verifyJWT, getPinataConfig, corsOptions } from '../utils/shared.ts'
+import { verifyJWT, getPinataConfig, corsOptions, getMarketplaceAddress } from '../utils/shared.ts'
 import { verifyTypedData } from "viem";
 
 const app = new Hono()
@@ -360,7 +359,7 @@ app.get('/fileByPostId', async (c) => {
   }
 
   try {
-    const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+    const marketplaceContract = new ethers.Contract(getMarketplaceAddress(), marketplace_abi, provider)
     const balance = await marketplaceContract.balanceOf(requestedUser, postId)
     const postInfo = await marketplaceContract.getPostInfo(postId)
     const author = postInfo.author
@@ -398,7 +397,7 @@ app.post('/delete/file', async (c) => {
   const signature = body.signature
   const cid = c.req.query('cid')
 
-  const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+  const marketplaceContract = new ethers.Contract(getMarketplaceAddress(), marketplace_abi, provider)
   const postId = await marketplaceContract.postCidToTokenId(cid)
   if (postId !== 0n) {
     return c.json({ error: 'File is published on chain' }, { status: 400 })
@@ -451,7 +450,7 @@ app.get('/freeFileByPostId', async (c) => {
   }
 
   try {
-    const marketplaceContract = new ethers.Contract(marketplaceAddress, marketplace_abi, provider)
+    const marketplaceContract = new ethers.Contract(getMarketplaceAddress(), marketplace_abi, provider)
     const postInfo = await marketplaceContract.postInfo(postId)
     if (postInfo.priceInNative > 0) {
       return c.json({ error: 'File is not free' }, { status: 400 })
