@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { corsOptions } from '../utils/shared.ts'
+import { corsOptions, getSubgraphSlug } from '../utils/shared.ts'
 
 const app = new Hono()
 
 // Add CORS middleware
 app.use('*', cors(corsOptions))
 
-const GRAPH_API_URL = 'https://api.goldsky.com/api/public/project_cmhoc42eyqwf101z818rh6knp/subgraphs/InkDAO/prod/gn'
+const GRAPH_API_URL = `https://api.goldsky.com/api/public/project_cmhoc42eyqwf101z818rh6knp/subgraphs/${getSubgraphSlug()}/gn`
 
 app.get('/globalMetrics', async (c) => {
   try {

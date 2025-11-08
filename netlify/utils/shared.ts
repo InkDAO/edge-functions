@@ -23,6 +23,10 @@ export const getMarketplaceAddress = () => {
   return Deno.env.get('MARKETPLACE_ADDRESS') as string
 }
 
+export const getSubgraphSlug = () => {
+  return Deno.env.get('SUBGRAPH_URL') as string
+}
+
 export const getPinataConfig = () => {
   const pinataJwt = Deno.env.get('PINATA_JWT')
   const gatewayUrl = Deno.env.get('GATEWAY_URL')
